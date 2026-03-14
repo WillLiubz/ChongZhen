@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>冲阵 - 三线对冲战斗</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #0d1117;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+        #gameContainer {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        canvas {
+            border: 2px solid #30363d;
+            border-radius: 12px;
+            background: linear-gradient(180deg, #161b22 0%, #0d1117 100%);
+            box-shadow: 0 0 40px rgba(0,0,0,0.5);
+        }
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #c9d1d9;
+            font-size: 12px;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+        }
+        #ui div {
+            margin-bottom: 4px;
+        }
+        #controls {
+            margin-top: 16px;
+            display: flex;
+            gap: 12px;
+        }
+        #sceneControls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            display: flex;
+            gap: 8px;
+        }
+        #laneControls {
+            position: absolute;
+            top: 60px;
+            right: 10px;
+            display: flex;
+            gap: 6px;
+            flex-direction: column;
+        }
+        .lane-count-btn {
+            width: 40px;
+            height: 32px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            background: rgba(0, 0, 0, 0.5);
+            color: #c9d1d9;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .lane-count-btn:hover {
+            border-color: rgba(255, 255, 255, 0.5);
+            background: rgba(0, 0, 0, 0.7);
+        }
+        .lane-count-btn.active {
+            border-color: #58a6ff;
+            background: rgba(88, 166, 255, 0.3);
+            box-shadow: 0 0 8px rgba(88, 166, 255, 0.5);
+        }
+        .scene-btn {
+            width: 40px;
+            height: 40px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.5);
+            cursor: pointer;
+            font-size: 20px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .scene-btn:hover {
+            transform: scale(1.1);
+            border-color: rgba(255, 255, 255, 0.5);
+            background: rgba(0, 0, 0, 0.7);
+        }
+        .scene-btn.active {
+            border-color: #238636;
+            background: rgba(35, 134, 54, 0.3);
+            box-shadow: 0 0 10px rgba(35, 134, 54, 0.5);
+        }
+        .lane-btn {
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #238636 0%, #2ea043 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+            box-shadow: 0 4px 12px rgba(35, 134, 54, 0.3);
+        }
+        .lane-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(35, 134, 54, 0.4);
+        }
+        .lane-btn:active {
+            transform: translateY(0);
+        }
+        .lane-btn:disabled {
+            background: #30363d;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+        .lane-btn.left { background: linear-gradient(135deg, #1f6feb 0%, #58a6ff 100%); }
+        .lane-btn.left:hover { box-shadow: 0 6px 16px rgba(31, 111, 235, 0.4); }
+        .lane-btn.right { background: linear-gradient(135deg, #da3633 0%, #f85149 100%); }
+        .lane-btn.right:hover { box-shadow: 0 6px 16px rgba(218, 54, 51, 0.4); }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="500" height="800"></canvas>
+        <div id="ui">
+            <div>FPS: <span id="fps">0</span></div>
+            <div>单位数: <span id="unitCount">0</span></div>
+        </div>
+        <div id="sceneControls">
+            <button class="scene-btn active" data-scene="land" title="陆地">🏔️</button>
+            <button class="scene-btn" data-scene="ocean" title="海底">🌊</button>
+            <button class="scene-btn" data-scene="space" title="太空">🚀</button>
+            <button class="scene-btn" data-scene="grassland" title="草原">🌿</button>
+        </div>
+        <div id="laneControls">
+            <button class="lane-count-btn" data-lanes="1" title="1条路">1</button>
+            <button class="lane-count-btn" data-lanes="2" title="2条路">2</button>
+            <button class="lane-count-btn active" data-lanes="3" title="3条路">3</button>
+        </div>
+        <div id="controls">
+            <button id="spawnLeft" class="lane-btn left">左路出兵 (Q)</button>
+            <button id="spawnMid" class="lane-btn">中路出兵 (W)</button>
+            <button id="spawnRight" class="lane-btn right">右路出兵 (E)</button>
+        </div>
+    </div>
+
+    <script src="js/utils/Vector2.js"></script>
+    <script src="js/utils/Pool.js"></script>
+    <script src="js/core/Entity.js"></script>
+    <script src="js/core/Scene.js"></script>
+    <script src="js/core/Game.js"></script>
+    <script src="js/systems/MoveSystem.js"></script>
+    <script src="js/systems/CollisionSystem.js"></script>
+    <script src="js/systems/RenderSystem.js"></script>
+    <script src="js/entities/Unit.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
