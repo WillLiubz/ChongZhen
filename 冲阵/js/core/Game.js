@@ -128,6 +128,25 @@ class Game {
             2: { hp: 500, maxHp: 500, level: 1, skillCD: 0 }   // 右路
         };
 
+        // 出兵台词配置
+        this.spawnQuotes = {
+            melee: [
+                '冲啊！', '为了荣耀！', '杀！', '前进！',
+                '跟我上！', '碾碎他们！', '战无不胜！', '冲阵！'
+            ],
+            ranged: [
+                '瞄准！', '火力压制！', '箭无虚发！', '远程支援！',
+                '射击！', '掩护队友！', '百步穿杨！', '放！'
+            ],
+            tank: [
+                '坚不可摧！', '我来扛！', '铜墙铁壁！', '挡在前面！',
+                '无所畏惧！', '守护队友！', '铁壁防御！', '顶住！'
+            ]
+        };
+
+        // 当前显示的台词
+        this.activeQuotes = [];
+
         this.init();
     }
 
@@ -197,6 +216,28 @@ class Game {
         for (let i = 0; i < this.laneCount; i++) {
             if (this.heroes[i] && this.heroes[i].skillCD > 0) {
                 this.heroes[i].skillCD -= this.deltaTime;
+            }
+        }
+
+        // 更新台词显示
+        this.updateQuotes();
+    }
+
+    // 更新台词
+    updateQuotes() {
+        for (let i = this.activeQuotes.length - 1; i >= 0; i--) {
+            const quote = this.activeQuotes[i];
+            quote.life -= this.deltaTime;
+
+            // 跟随实体移动
+            if (quote.entity && quote.entity.active) {
+                quote.x = quote.entity.position.x;
+                quote.y = quote.entity.position.y - 35;
+            }
+
+            // 移除过期的台词
+            if (quote.life <= 0) {
+                this.activeQuotes.splice(i, 1);
             }
         }
     }
@@ -287,6 +328,35 @@ class Game {
 
         // 绘制敌方基地
         this.drawEnemyBase(ctx, layout, scene);
+
+        // 绘制出兵台词
+        this.drawQuotes(ctx);
+    }
+
+    // 绘制台词
+    drawQuotes(ctx) {
+        for (const quote of this.activeQuotes) {
+            const alpha = Math.min(1, quote.life / 0.3); // 淡出效果
+            const offsetY = (quote.maxLife - quote.life) * 20; // 向上飘动
+
+            ctx.save();
+            ctx.globalAlpha = alpha;
+
+            // 台词背景
+            ctx.font = 'bold 12px sans-serif';
+            const textWidth = ctx.measureText(quote.text).width;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.beginPath();
+            ctx.roundRect(quote.x - textWidth / 2 - 6, quote.y - offsetY - 14, textWidth + 12, 20, 4);
+            ctx.fill();
+
+            // 台词文字
+            ctx.fillStyle = '#fff';
+            ctx.textAlign = 'center';
+            ctx.fillText(quote.text, quote.x, quote.y - offsetY);
+
+            ctx.restore();
+        }
     }
 
     drawPlayerBase(ctx, layout, scene) {
@@ -593,7 +663,28 @@ class Game {
         }
 
         this.entities.push(entity);
+
+        // 玩家方出兵时显示台词
+        if (team === 0) {
+            this.showSpawnQuote(entity, unitType);
+        }
+
         return entity;
+    }
+
+    // 显示出兵台词
+    showSpawnQuote(entity, unitType) {
+        const quotes = this.spawnQuotes[unitType] || this.spawnQuotes.melee;
+        const quote = quotes[Math.floor(Math.random() * quotes.length)];
+
+        this.activeQuotes.push({
+            text: quote,
+            x: entity.position.x,
+            y: entity.position.y - 30,
+            life: 1.5,  // 显示1.5秒
+            maxLife: 1.5,
+            entity: entity  // 跟随实体
+        });
     }
 
     // 增加屯兵
