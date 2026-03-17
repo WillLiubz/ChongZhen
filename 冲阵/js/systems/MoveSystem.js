@@ -11,8 +11,22 @@ class MoveSystem {
             if (!entity.active || !entity.canMove) continue;
 
             // 如果有战斗目标，不移动
-            if (entity.combatTarget && entity.combatTarget.active) {
+            if (entity.isInCombat) {
                 entity.velocity.set(0, 0);
+
+                // 应用阵型偏移（平滑插值）
+                if (entity.formationOffset) {
+                    const targetX = entity.position.x + entity.formationOffset.x;
+                    const targetY = entity.position.y + entity.formationOffset.y;
+
+                    // 只在阵型位置附近微调，不改变主要位置
+                    const dx = targetX - entity.position.x;
+                    const dy = targetY - entity.position.y;
+
+                    entity.position.x += dx * 2 * deltaTime;
+                    entity.position.y += dy * 2 * deltaTime;
+                }
+
                 continue;
             }
 

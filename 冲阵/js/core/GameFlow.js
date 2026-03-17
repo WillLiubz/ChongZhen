@@ -261,7 +261,8 @@ class GameFlow {
 }
 
 /**
- * 世界地图类
+ * 球形世界地图类
+ * 中央有宝藏，玩家需要挑战格子上的怪物来占领
  */
 class WorldMap {
     constructor(gameFlow) {
@@ -269,140 +270,191 @@ class WorldMap {
         this.width = 500;
         this.height = 800;
 
-        // 地图格子配置
-        this.gridSize = 50;
-        this.cols = 10;
-        this.rows = 16;
+        // 地图配置 - 球形布局
+        this.centerX = this.width / 2;
+        this.centerY = this.height / 2 - 50;
+        this.sphereRadius = 280;
 
-        // 四个出生点位置（固定在世界四角）
-        this.spawnPoints = {
-            plains: { col: 2, row: 2, color: '#8B7355', icon: '⛰️' },      // 左上
-            ocean: { col: 7, row: 2, color: '#0066CC', icon: '🌊' },       // 右上
-            space: { col: 2, row: 13, color: '#9933FF', icon: '🚀' },      // 左下
-            grassland: { col: 7, row: 13, color: '#44AA44', icon: '🌿' }   // 右下
+        // 网格配置
+        this.ringCount = 5; // 环形层数
+        this.gridSize = 45;
+
+        // 中央宝藏
+        this.treasure = {
+            x: this.centerX,
+            y: this.centerY,
+            radius: 35,
+            conquered: false
         };
 
-        // 玩家当前位置
-        this.playerPos = null;
+        // 四个出生点配置（在球形边缘）
+        this.spawnPoints = {
+            plains: { angle: -135, color: '#8B7355', icon: '⛰️', name: '山丘领主' },      // 左上
+            ocean: { angle: -45, color: '#0066CC', icon: '🌊', name: '深海行者' },       // 右上
+            space: { angle: 135, color: '#9933FF', icon: '🚀', name: '星际旅者' },       // 左下
+            grassland: { angle: 45, color: '#44AA44', icon: '🌿', name: '草原之魂' }     // 右下
+        };
 
-        // 迷雾状态: true = 可见, false = 迷雾
-        this.fogOfWar = [];
+        // 玩家位置（在球形上的坐标）
+        this.playerOrigin = null;
+        this.playerPos = null; // { ring: 0-4, angle: 角度 }
 
-        // 可见范围（格子数）
-        this.visibilityRange = 2;
+        // 格子数据 - 每个格子的占领状态和怪物
+        this.cells = []; // 二维数组 [ring][cellIndex]
 
-        // 小怪位置
-        this.monsters = [];
+        // 可见范围（环形层数）
+        this.visibilityRange = 1;
 
         // 悬停的格子
         this.hoveredCell = null;
+
+        // 动画
+        this.sphereRotation = 0;
     }
 
     // 初始化地图
     init(playerOrigin) {
         this.playerOrigin = playerOrigin;
-        this.playerPos = { ...this.spawnPoints[playerOrigin] };
 
-        // 初始化迷雾
-        this.fogOfWar = [];
-        for (let r = 0; r < this.rows; r++) {
-            this.fogOfWar[r] = [];
-            for (let c = 0; c < this.cols; c++) {
-                this.fogOfWar[r][c] = false;
+        // 玩家出生在第4环（距离宝藏8格以外）
+        const spawnPoint = this.spawnPoints[playerOrigin];
+        this.playerPos = {
+            ring: 4,
+            angle: spawnPoint.angle
+        };
+
+        // 初始化球形网格
+        this.initSphereGrid();
+
+        // 生成怪物
+        this.generateMonsters();
+    }
+
+    // 初始化球形网格
+    initSphereGrid() {
+        this.cells = [];
+
+        for (let ring = 0; ring < this.ringCount; ring++) {
+            this.cells[ring] = [];
+            const cellCount = 8 + ring * 4; // 内圈8格，每外圈多4格
+
+            for (let i = 0; i < cellCount; i++) {
+                const angle = (360 / cellCount) * i;
+                const radius = (ring + 1) * (this.sphereRadius / this.ringCount);
+
+                this.cells[ring][i] = {
+                    ring: ring,
+                    index: i,
+                    angle: angle,
+                    radius: radius,
+                    x: this.centerX + Math.cos((angle - 90) * Math.PI / 180) * radius,
+                    y: this.centerY + Math.sin((angle - 90) * Math.PI / 180) * radius,
+                    conquered: false,
+                    monster: null,
+                    visible: false
+                };
             }
         }
 
-        // 更新可见区域
         this.updateVisibility();
-
-        // 生成小怪（只在可见区域内）
-        this.generateMonsters();
     }
 
     // 更新可见区域
     updateVisibility() {
-        for (let r = 0; r < this.rows; r++) {
-            for (let c = 0; c < this.cols; c++) {
-                const dist = Math.sqrt(
-                    Math.pow(c - this.playerPos.col, 2) +
-                    Math.pow(r - this.playerPos.row, 2)
-                );
-                if (dist <= this.visibilityRange) {
-                    this.fogOfWar[r][c] = true;
+        // 找到玩家所在的格子
+        let playerCell = null;
+        for (let ring = 0; ring < this.ringCount; ring++) {
+            for (let cell of this.cells[ring]) {
+                // 检查是否是玩家位置附近的格子
+                const angleDiff = Math.abs(cell.angle - this.playerPos.angle);
+                const normalizedDiff = Math.min(angleDiff, 360 - angleDiff);
+
+                if (cell.ring === this.playerPos.ring && normalizedDiff < 30) {
+                    playerCell = cell;
+                }
+            }
+        }
+
+        // 更新可见性
+        for (let ring = 0; ring < this.ringCount; ring++) {
+            for (let cell of this.cells[ring]) {
+                cell.visible = false;
+
+                if (!playerCell) continue;
+
+                // 同环或相邻环
+                const ringDiff = Math.abs(cell.ring - playerCell.ring);
+                if (ringDiff > this.visibilityRange) continue;
+
+                // 角度接近
+                const angleDiff = Math.abs(cell.angle - playerCell.angle);
+                const normalizedDiff = Math.min(angleDiff, 360 - angleDiff);
+
+                // 可见角度范围根据环数调整
+                const visibleAngle = 45 + ringDiff * 15;
+                if (normalizedDiff <= visibleAngle) {
+                    cell.visible = true;
                 }
             }
         }
     }
 
-    // 生成小怪
+    // 生成怪物
     generateMonsters() {
-        this.monsters = [];
-
-        // 在玩家周围生成2-3个小怪
-        const directions = [
-            { dc: 1, dr: 0 }, { dc: -1, dr: 0 },
-            { dc: 0, dr: 1 }, { dc: 0, dr: -1 },
-            { dc: 1, dr: 1 }, { dc: -1, dr: -1 }
-        ];
-
-        for (const dir of directions) {
-            const newCol = this.playerPos.col + dir.dc;
-            const newRow = this.playerPos.row + dir.dr;
-
-            if (this.isValidCell(newCol, newRow) && Math.random() > 0.3) {
-                this.monsters.push({
-                    col: newCol,
-                    row: newRow,
-                    type: Math.random() > 0.5 ? 'melee' : 'ranged',
-                    hp: 100,
-                    maxHp: 100
-                });
+        for (let ring = 0; ring < this.ringCount; ring++) {
+            for (let cell of this.cells[ring]) {
+                // 每个未占领的格子都有怪物
+                if (!cell.conquered) {
+                    const difficulty = ring + 1; // 越外层怪物越强
+                    cell.monster = {
+                        type: Math.random() > 0.6 ? 'ranged' : 'melee',
+                        hp: 50 + difficulty * 25,
+                        maxHp: 50 + difficulty * 25,
+                        level: difficulty
+                    };
+                }
             }
         }
     }
 
-    // 检查格子是否有效
-    isValidCell(col, row) {
-        return col >= 0 && col < this.cols && row >= 0 && row < this.rows;
-    }
-
     // 处理鼠标移动
     handleMouseMove(x, y) {
-        const col = Math.floor(x / this.gridSize);
-        const row = Math.floor(y / this.gridSize);
+        this.hoveredCell = null;
 
-        if (this.isValidCell(col, row) && this.fogOfWar[row][col]) {
-            this.hoveredCell = { col, row };
-            this.gameFlow.canvas.style.cursor = this.getMonsterAt(col, row) ? 'pointer' : 'default';
-        } else {
-            this.hoveredCell = null;
-            this.gameFlow.canvas.style.cursor = 'default';
+        // 检查是否悬停在格子上
+        for (let ring = 0; ring < this.ringCount; ring++) {
+            for (let cell of this.cells[ring]) {
+                if (!cell.visible) continue;
+
+                const dist = Math.sqrt(
+                    Math.pow(x - cell.x, 2) +
+                    Math.pow(y - cell.y, 2)
+                );
+
+                if (dist < this.gridSize / 2) {
+                    this.hoveredCell = cell;
+                    this.gameFlow.canvas.style.cursor = cell.monster ? 'pointer' : 'default';
+                    return;
+                }
+            }
         }
+
+        this.gameFlow.canvas.style.cursor = 'default';
     }
 
     // 处理点击
     handleClick(x, y) {
-        const col = Math.floor(x / this.gridSize);
-        const row = Math.floor(y / this.gridSize);
+        if (!this.hoveredCell) return;
+        if (!this.hoveredCell.visible) return;
 
-        if (!this.isValidCell(col, row)) return;
-        if (!this.fogOfWar[row][col]) return;
-
-        // 检查是否点击了小怪
-        const monster = this.getMonsterAt(col, row);
-        if (monster) {
-            this.startBattleWithMonster(monster);
+        // 点击有怪物的格子进入战斗
+        if (this.hoveredCell.monster) {
+            this.startBattleWithMonster(this.hoveredCell);
         }
     }
 
-    // 获取指定位置的小怪
-    getMonsterAt(col, row) {
-        return this.monsters.find(m => m.col === col && m.row === row);
-    }
-
     // 与小怪战斗
-    startBattleWithMonster(monster) {
-        // 根据玩家出身确定战斗场景
+    startBattleWithMonster(cell) {
         const sceneMap = {
             plains: 'land',
             ocean: 'ocean',
@@ -410,50 +462,66 @@ class WorldMap {
             grassland: 'grassland'
         };
 
+        // 保存当前战斗的格子，胜利后可以占领
+        this.currentBattleCell = cell;
+
+        // 调用 GameFlow 的 startBattle 方法
         this.gameFlow.startBattle(sceneMap[this.playerOrigin]);
+    }
+
+    // 占领格子（战斗胜利后调用）
+    conquerCell(cell) {
+        cell.conquered = true;
+        cell.monster = null;
+
+        // 检查是否占领了宝藏周围的所有格子
+        this.checkTreasureAccess();
+    }
+
+    // 检查是否可以占领宝藏
+    checkTreasureAccess() {
+        // 内圈所有格子都被占领时，可以挑战宝藏
+        const innerRingConquered = this.cells[0].every(cell => cell.conquered);
+        if (innerRingConquered) {
+            this.treasure.conquered = true;
+        }
     }
 
     // 渲染地图
     render(ctx, animationTime) {
-        // 背景
-        ctx.fillStyle = '#0a0a1a';
+        // 背景 - 深空效果
+        const bgGradient = ctx.createRadialGradient(
+            this.centerX, this.centerY, 0,
+            this.centerX, this.centerY, this.sphereRadius * 1.5
+        );
+        bgGradient.addColorStop(0, '#1a1a3a');
+        bgGradient.addColorStop(0.7, '#0d0d1a');
+        bgGradient.addColorStop(1, '#050510');
+        ctx.fillStyle = bgGradient;
         ctx.fillRect(0, 0, this.width, this.height);
 
-        // 绘制网格和迷雾
-        for (let r = 0; r < this.rows; r++) {
-            for (let c = 0; c < this.cols; c++) {
-                const x = c * this.gridSize;
-                const y = r * this.gridSize;
-                const isVisible = this.fogOfWar[r][c];
+        // 绘制球形轮廓
+        this.drawSphereOutline(ctx, animationTime);
 
-                // 格子背景
-                if (isVisible) {
-                    ctx.fillStyle = '#1a1a3a';
-                    ctx.fillRect(x, y, this.gridSize, this.gridSize);
+        // 绘制环形连接线
+        this.drawRingConnections(ctx);
 
-                    // 网格线
-                    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-                    ctx.lineWidth = 1;
-                    ctx.strokeRect(x, y, this.gridSize, this.gridSize);
-                } else {
-                    // 迷雾
-                    ctx.fillStyle = '#050510';
-                    ctx.fillRect(x, y, this.gridSize, this.gridSize);
-                }
-            }
-        }
-
-        // 绘制其他出生点（在迷雾中隐约可见）
-        for (const [origin, pos] of Object.entries(this.spawnPoints)) {
+        // 绘制其他出生点（在球形远端）
+        for (const [origin, data] of Object.entries(this.spawnPoints)) {
             if (origin !== this.playerOrigin) {
-                this.renderDistantSpawnPoint(ctx, origin, pos, animationTime);
+                this.renderDistantSpawnPoint(ctx, origin, data, animationTime);
             }
         }
 
-        // 绘制小怪
-        for (const monster of this.monsters) {
-            this.renderMonster(ctx, monster, animationTime);
+        // 绘制格子
+        for (let ring = 0; ring < this.ringCount; ring++) {
+            for (let cell of this.cells[ring]) {
+                this.renderCell(ctx, cell, animationTime);
+            }
         }
+
+        // 绘制中央宝藏
+        this.renderTreasure(ctx, animationTime);
 
         // 绘制玩家
         this.renderPlayer(ctx, animationTime);
@@ -462,168 +530,340 @@ class WorldMap {
         this.renderUI(ctx);
     }
 
-    // 渲染远处的出生点（迷雾中隐约可见）
-    renderDistantSpawnPoint(ctx, origin, pos, animationTime) {
-        const x = pos.col * this.gridSize;
-        const y = pos.row * this.gridSize;
-        const centerX = x + this.gridSize / 2;
-        const centerY = y + this.gridSize / 2;
-
-        // 计算距离玩家的距离
-        const distToPlayer = Math.sqrt(
-            Math.pow(pos.col - this.playerPos.col, 2) +
-            Math.pow(pos.row - this.playerPos.row, 2)
-        );
-
-        // 只有在迷雾中且不太远才显示
-        if (this.fogOfWar[pos.row][pos.col] || distToPlayer > 8) return;
-
-        // 根据距离计算透明度（越远越淡）
-        const baseAlpha = Math.max(0.15, 0.5 - distToPlayer * 0.05);
-
-        // 呼吸动画效果
-        const breathe = Math.sin(animationTime * 2 + pos.col) * 0.1 + 0.9;
-        const alpha = baseAlpha * breathe;
-
-        const spawnInfo = this.gameFlow.originOptions.find(o => o.id === origin);
+    // 绘制球形轮廓
+    drawSphereOutline(ctx, animationTime) {
+        // 外圈光环
+        const pulse = Math.sin(animationTime * 2) * 5;
 
         ctx.save();
-        ctx.globalAlpha = alpha;
 
-        // 绘制背景光晕
-        const glowGradient = ctx.createRadialGradient(
-            centerX, centerY, 0,
-            centerX, centerY, this.gridSize * 1.5
-        );
-        glowGradient.addColorStop(0, spawnInfo.color + '40'); // 25% opacity
-        glowGradient.addColorStop(1, 'transparent');
-        ctx.fillStyle = glowGradient;
-        ctx.fillRect(x - this.gridSize, y - this.gridSize, this.gridSize * 3, this.gridSize * 3);
-
-        // 绘制格子背景（隐约的地形）
-        ctx.fillStyle = spawnInfo.color + '20'; // 12% opacity
-        ctx.fillRect(x + 5, y + 5, this.gridSize - 10, this.gridSize - 10);
-
-        // 绘制图标
-        ctx.font = '16px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillStyle = '#fff';
-        ctx.fillText(spawnInfo.icon, centerX, centerY + 5);
-
-        // 绘制问号提示（表示未知）
-        if (Math.sin(animationTime * 3) > 0) {
-            ctx.font = 'bold 10px sans-serif';
-            ctx.fillStyle = spawnInfo.color;
-            ctx.fillText('?', centerX + 12, centerY - 8);
-        }
-
-        // 绘制连接线（隐约的路径）
-        this.drawFaintPath(ctx, this.playerPos, pos, spawnInfo.color, alpha * 0.3);
-
-        ctx.restore();
-    }
-
-    // 绘制隐约的路径线
-    drawFaintPath(ctx, from, to, color, alpha) {
-        const fromX = from.col * this.gridSize + this.gridSize / 2;
-        const fromY = from.row * this.gridSize + this.gridSize / 2;
-        const toX = to.col * this.gridSize + this.gridSize / 2;
-        const toY = to.row * this.gridSize + this.gridSize / 2;
-
-        ctx.save();
-        ctx.globalAlpha = alpha;
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([5, 10]);
-
-        // 绘制虚线路径
+        // 主球体轮廓
         ctx.beginPath();
-        ctx.moveTo(fromX, fromY);
-        ctx.lineTo(toX, toY);
+        ctx.arc(this.centerX, this.centerY, this.sphereRadius, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(100, 100, 150, 0.3)';
+        ctx.lineWidth = 2;
         ctx.stroke();
 
+        // 内圈光环
+        ctx.beginPath();
+        ctx.arc(this.centerX, this.centerY, this.sphereRadius + 10 + pulse, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(100, 100, 150, 0.1)';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        // 绘制同心圆环
+        for (let i = 1; i <= this.ringCount; i++) {
+            const radius = (i / this.ringCount) * this.sphereRadius;
+            ctx.beginPath();
+            ctx.arc(this.centerX, this.centerY, radius, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(100, 100, 150, ${0.1 - i * 0.015})`;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+
         ctx.restore();
     }
 
-    // 计算到最近可见格子的距离
-    getDistanceToVisible(col, row) {
-        let minDist = Infinity;
-        for (let r = 0; r < this.rows; r++) {
-            for (let c = 0; c < this.cols; c++) {
-                if (this.fogOfWar[r][c]) {
-                    const dist = Math.sqrt(Math.pow(c - col, 2) + Math.pow(r - row, 2));
-                    minDist = Math.min(minDist, dist);
-                }
+    // 绘制环形连接线
+    drawRingConnections(ctx) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(100, 100, 150, 0.08)';
+        ctx.lineWidth = 1;
+
+        for (let ring = 0; ring < this.ringCount; ring++) {
+            if (!this.cells[ring]) continue;
+
+            for (let i = 0; i < this.cells[ring].length; i++) {
+                const cell = this.cells[ring][i];
+                const nextCell = this.cells[ring][(i + 1) % this.cells[ring].length];
+
+                ctx.beginPath();
+                ctx.moveTo(cell.x, cell.y);
+                ctx.lineTo(nextCell.x, nextCell.y);
+                ctx.stroke();
             }
         }
-        return minDist;
+
+        ctx.restore();
     }
 
-    // 渲染小怪
-    renderMonster(ctx, monster, animationTime) {
-        const x = monster.col * this.gridSize + this.gridSize/2;
-        const y = monster.row * this.gridSize + this.gridSize/2;
+    // 渲染格子
+    renderCell(ctx, cell, animationTime) {
+        const isHovered = this.hoveredCell === cell;
 
-        // 悬停效果
-        const isHovered = this.hoveredCell &&
-                         this.hoveredCell.col === monster.col &&
-                         this.hoveredCell.row === monster.row;
+        if (cell.visible) {
+            // 可见格子
+            ctx.save();
 
-        // 呼吸动画
-        const breathe = Math.sin(animationTime * 3) * 2;
-        const size = 15 + breathe;
+            // 格子背景 - 根据环数变化颜色
+            const ringColors = ['#2a2a4a', '#252545', '#202040', '#1a1a3a', '#151535'];
+            ctx.fillStyle = cell.conquered ? '#3a3a5a' : ringColors[cell.ring];
 
-        // 绘制怪物
+            if (isHovered) {
+                ctx.fillStyle = '#4a4a6a';
+            }
+
+            // 绘制六边形格子
+            this.drawHexagon(ctx, cell.x, cell.y, this.gridSize / 2 - 2);
+            ctx.fill();
+
+            // 边框
+            ctx.strokeStyle = cell.conquered ? '#5a5a7a' : 'rgba(100,100,150,0.3)';
+            ctx.lineWidth = isHovered ? 2 : 1;
+            this.drawHexagon(ctx, cell.x, cell.y, this.gridSize / 2 - 2);
+            ctx.stroke();
+
+            // 绘制怪物
+            if (cell.monster) {
+                this.renderCellMonster(ctx, cell, animationTime);
+            }
+
+            // 已占领标记
+            if (cell.conquered) {
+                ctx.font = '12px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillStyle = '#44aa44';
+                ctx.fillText('✓', cell.x, cell.y + 4);
+            }
+
+            ctx.restore();
+        } else {
+            // 迷雾中的格子 - 只绘制微弱轮廓
+            ctx.save();
+            ctx.strokeStyle = 'rgba(100,100,150,0.05)';
+            ctx.lineWidth = 1;
+            this.drawHexagon(ctx, cell.x, cell.y, this.gridSize / 2 - 2);
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
+
+    // 绘制六边形
+    drawHexagon(ctx, x, y, radius) {
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+            const angle = (60 * i - 30) * Math.PI / 180;
+            const hx = x + radius * Math.cos(angle);
+            const hy = y + radius * Math.sin(angle);
+            if (i === 0) {
+                ctx.moveTo(hx, hy);
+            } else {
+                ctx.lineTo(hx, hy);
+            }
+        }
+        ctx.closePath();
+    }
+
+    // 渲染格子上的怪物
+    renderCellMonster(ctx, cell, animationTime) {
+        const isHovered = this.hoveredCell === cell;
+        const breathe = Math.sin(animationTime * 3 + cell.ring) * 2;
+
         ctx.save();
-        ctx.translate(x, y);
+        ctx.translate(cell.x, cell.y);
 
-        // 选中光圈
+        // 悬停光圈
         if (isHovered) {
             ctx.beginPath();
-            ctx.arc(0, 0, 22, 0, Math.PI * 2);
+            ctx.arc(0, 0, 20, 0, Math.PI * 2);
             ctx.strokeStyle = '#ff6666';
             ctx.lineWidth = 2;
             ctx.stroke();
         }
 
         // 怪物图标
-        ctx.font = '20px sans-serif';
+        ctx.font = '18px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(monster.type === 'melee' ? '👹' : '👺', 0, 7);
+        const monsterIcons = { melee: '👹', ranged: '👺', tank: '👾' };
+        ctx.fillText(monsterIcons[cell.monster.type] || '👹', 0, 6 + breathe);
 
-        // 血条背景
-        ctx.fillStyle = '#333';
-        ctx.fillRect(-15, -25, 30, 4);
+        // 等级标记
+        ctx.font = 'bold 9px sans-serif';
+        ctx.fillStyle = '#ffaa44';
+        ctx.fillText(`Lv${cell.monster.level}`, 0, -12);
 
-        // 血条
-        const hpPercent = monster.hp / monster.maxHp;
-        ctx.fillStyle = hpPercent > 0.5 ? '#44aa44' : '#aa4444';
-        ctx.fillRect(-15, -25, 30 * hpPercent, 4);
+        ctx.restore();
+    }
+
+    // 渲染中央宝藏
+    renderTreasure(ctx, animationTime) {
+        const pulse = Math.sin(animationTime * 3) * 8;
+        const rotate = animationTime * 30;
+
+        ctx.save();
+        ctx.translate(this.treasure.x, this.treasure.y);
+
+        // 外圈光环
+        const gradient = ctx.createRadialGradient(0, 0, 10, 0, 0, this.treasure.radius + pulse);
+        gradient.addColorStop(0, 'rgba(255, 215, 0, 0.8)');
+        gradient.addColorStop(0.5, 'rgba(255, 180, 0, 0.4)');
+        gradient.addColorStop(1, 'transparent');
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(0, 0, this.treasure.radius + pulse, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 旋转的星形
+        ctx.rotate(rotate * Math.PI / 180);
+        ctx.fillStyle = '#FFD700';
+        this.drawStar(ctx, 0, 0, 5, this.treasure.radius - 5, this.treasure.radius - 15);
+        ctx.fill();
+
+        ctx.rotate(-rotate * Math.PI / 180);
+
+        // 宝藏图标
+        ctx.font = '28px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('💎', 0, 10);
+
+        // 标签
+        ctx.font = 'bold 11px sans-serif';
+        ctx.fillStyle = '#FFD700';
+        ctx.fillText('中央宝藏', 0, 35);
+
+        ctx.restore();
+    }
+
+    // 绘制星形
+    drawStar(ctx, cx, cy, spikes, outerRadius, innerRadius) {
+        let rot = Math.PI / 2 * 3;
+        let x = cx;
+        let y = cy;
+        let step = Math.PI / spikes;
+
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - outerRadius);
+        for (let i = 0; i < spikes; i++) {
+            x = cx + Math.cos(rot) * outerRadius;
+            y = cy + Math.sin(rot) * outerRadius;
+            ctx.lineTo(x, y);
+            rot += step;
+
+            x = cx + Math.cos(rot) * innerRadius;
+            y = cy + Math.sin(rot) * innerRadius;
+            ctx.lineTo(x, y);
+            rot += step;
+        }
+        ctx.lineTo(cx, cy - outerRadius);
+        ctx.closePath();
+    }
+
+    // 渲染远处的出生点（在球形边缘）
+    renderDistantSpawnPoint(ctx, origin, data, animationTime) {
+        const radius = this.sphereRadius + 40;
+        const x = this.centerX + Math.cos((data.angle - 90) * Math.PI / 180) * radius;
+        const y = this.centerY + Math.sin((data.angle - 90) * Math.PI / 180) * radius;
+
+        const breathe = Math.sin(animationTime * 2 + data.angle) * 0.2 + 0.8;
+        const alpha = 0.6 * breathe;
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+
+        // 光晕
+        const glowGradient = ctx.createRadialGradient(x, y, 0, x, y, 50);
+        glowGradient.addColorStop(0, data.color + '60');
+        glowGradient.addColorStop(1, 'transparent');
+        ctx.fillStyle = glowGradient;
+        ctx.beginPath();
+        ctx.arc(x, y, 50, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 图标背景
+        ctx.fillStyle = data.color + '40';
+        ctx.beginPath();
+        ctx.arc(x, y, 25, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 边框
+        ctx.strokeStyle = data.color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x, y, 25, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // 图标
+        ctx.font = '24px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#fff';
+        ctx.fillText(data.icon, x, y + 8);
+
+        // 名称
+        ctx.font = 'bold 10px sans-serif';
+        ctx.fillStyle = data.color;
+        ctx.fillText('???', x, y - 32);
+
+        // 连接线到球体
+        ctx.strokeStyle = data.color + '40';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        const innerX = this.centerX + Math.cos((data.angle - 90) * Math.PI / 180) * this.sphereRadius;
+        const innerY = this.centerY + Math.sin((data.angle - 90) * Math.PI / 180) * this.sphereRadius;
+        ctx.lineTo(innerX, innerY);
+        ctx.stroke();
 
         ctx.restore();
     }
 
     // 渲染玩家
     renderPlayer(ctx, animationTime) {
-        const x = this.playerPos.col * this.gridSize + this.gridSize/2;
-        const y = this.playerPos.row * this.gridSize + this.gridSize/2;
+        // 找到玩家对应的格子位置
+        let playerX, playerY;
 
-        // 脉冲动画
-        const pulse = Math.sin(animationTime * 4) * 3;
+        // 在边缘环上找到对应角度的格子
+        const ring = this.playerPos.ring;
+        const targetAngle = this.playerPos.angle;
+
+        if (this.cells[ring]) {
+            let closestCell = null;
+            let minAngleDiff = Infinity;
+
+            for (let cell of this.cells[ring]) {
+                let angleDiff = Math.abs(cell.angle - targetAngle);
+                angleDiff = Math.min(angleDiff, 360 - angleDiff);
+                if (angleDiff < minAngleDiff) {
+                    minAngleDiff = angleDiff;
+                    closestCell = cell;
+                }
+            }
+
+            if (closestCell) {
+                playerX = closestCell.x;
+                playerY = closestCell.y;
+            } else {
+                // 备用计算
+                const radius = (ring + 1) * (this.sphereRadius / this.ringCount);
+                playerX = this.centerX + Math.cos((targetAngle - 90) * Math.PI / 180) * radius;
+                playerY = this.centerY + Math.sin((targetAngle - 90) * Math.PI / 180) * radius;
+            }
+        } else {
+            playerX = this.centerX;
+            playerY = this.centerY;
+        }
+
+        const pulse = Math.sin(animationTime * 4) * 5;
 
         ctx.save();
-        ctx.translate(x, y);
+        ctx.translate(playerX, playerY);
 
         // 光环
         ctx.beginPath();
-        ctx.arc(0, 0, 20 + pulse, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(100, 200, 255, 0.2)';
+        ctx.arc(0, 0, 25 + pulse, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(100, 200, 255, 0.3)';
         ctx.fill();
 
+        ctx.beginPath();
+        ctx.arc(0, 0, 20, 0, Math.PI * 2);
+        ctx.strokeStyle = '#58a6ff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
         // 玩家图标
-        ctx.font = '24px sans-serif';
+        ctx.font = '26px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('🧙', 0, 8);
+        ctx.fillText('🧙', 0, 9);
 
         ctx.restore();
     }

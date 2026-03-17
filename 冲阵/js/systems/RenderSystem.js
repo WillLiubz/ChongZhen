@@ -15,6 +15,12 @@ class RenderSystem {
             if (!entity.active) continue;
             this.drawEntity(entity);
         }
+
+        // 绘制伤害数字（在所有实体之上）
+        for (const entity of sorted) {
+            if (!entity.active) continue;
+            this.drawDamageNumbers(entity);
+        }
     }
 
     drawEntity(entity) {
@@ -45,16 +51,137 @@ class RenderSystem {
         // 绘制血条
         this.drawHealthBar(ctx, x, y, r, entity);
 
+        // 绘制攻击特效
+        if (entity.attackEffect) {
+            this.drawAttackEffect(ctx, entity);
+        }
+
         // 如果有战斗目标，绘制战斗指示
         if (entity.combatTarget && entity.combatTarget.active) {
             this.drawCombatIndicator(ctx, x, y, entity);
         }
+
+        // 绘制军团战斗光环
+        if (entity.isInCombat && entity.combatGroup.length > 0) {
+            this.drawGroupCombatAura(ctx, x, y, r, entity);
+        }
+    }
+
+    // 绘制伤害数字
+    drawDamageNumbers(entity) {
+        if (!entity.damageNumbers || entity.damageNumbers.length === 0) return;
+
+        const ctx = this.ctx;
+        const x = entity.position.x;
+        const y = entity.position.y - entity.radius - 15;
+
+        for (const dmg of entity.damageNumbers) {
+            const alpha = Math.max(0, dmg.life);
+            const offsetY = dmg.offsetY;
+
+            ctx.save();
+            ctx.globalAlpha = alpha;
+
+            if (dmg.isSkill) {
+                // 技能伤害 - 更大更华丽
+                ctx.font = 'bold 18px sans-serif';
+                ctx.fillStyle = '#FFD700';
+                ctx.strokeStyle = '#FF6B35';
+                ctx.lineWidth = 2;
+                ctx.strokeText(dmg.value, x, y + offsetY);
+                ctx.fillText(dmg.value, x, y + offsetY);
+            } else {
+                // 普通伤害
+                ctx.font = 'bold 12px sans-serif';
+                ctx.fillStyle = '#fff';
+                ctx.fillText(dmg.value, x, y + offsetY);
+            }
+
+            ctx.restore();
+        }
+    }
+
+    // 绘制攻击特效
+    drawAttackEffect(ctx, entity) {
+        const effect = entity.attackEffect;
+        if (!effect || !effect.target) return;
+
+        const now = performance.now();
+        const progress = (now - effect.startTime) / effect.duration;
+
+        if (progress >= 1) return;
+
+        const startX = entity.position.x;
+        const startY = entity.position.y;
+        const endX = effect.target.position.x;
+        const endY = effect.target.position.y;
+
+        const currentX = startX + (endX - startX) * progress;
+        const currentY = startY + (endY - startY) * progress;
+
+        ctx.save();
+
+        // 绘制攻击轨迹
+        ctx.strokeStyle = entity.team === 0 ? '#3fb950' : '#f85149';
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = 1 - progress;
+
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(currentX, currentY);
+        ctx.stroke();
+
+        // 绘制攻击光点
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(currentX, currentY, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+    }
+
+    // 绘制军团战斗光环
+    drawGroupCombatAura(ctx, x, y, r, entity) {
+        const groupSize = entity.combatGroup.length + 1;
+        const pulse = Math.sin(performance.now() / 200) * 0.2 + 0.8;
+
+        ctx.save();
+        ctx.strokeStyle = entity.team === 0 ? '#3fb950' : '#f85149';
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.4 * pulse;
+
+        // 外圈光环
+        ctx.beginPath();
+        ctx.arc(x, y, r + 8 + groupSize * 2, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // 内圈光环
+        ctx.beginPath();
+        ctx.arc(x, y, r + 4, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // 军团人数标记
+        ctx.fillStyle = entity.team === 0 ? '#3fb950' : '#f85149';
+        ctx.font = 'bold 10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.globalAlpha = 0.8;
+        ctx.fillText(`x${groupSize}`, x, y - r - 12);
+
+        ctx.restore();
     }
 
     // 绘制英雄 - 六边形+光环
     drawHero(ctx, x, y, r, entity) {
         const teamColor = entity.team === 0 ? '#3fb950' : '#f85149';
         const innerColor = entity.team === 0 ? '#2ea043' : '#da3633';
+
+        // 战斗状态特效
+        if (entity.isInCombat) {
+            ctx.fillStyle = 'rgba(255, 100, 0, 0.2)';
+            ctx.beginPath();
+            ctx.arc(x, y, r + 10, 0, Math.PI * 2);
+            ctx.fill();
+        }
 
         // 外圈光环
         ctx.fillStyle = teamColor;
@@ -111,6 +238,14 @@ class RenderSystem {
         const teamColor = entity.team === 0 ? '#3fb950' : '#f85149';
         const innerColor = entity.team === 0 ? '#2ea043' : '#da3633';
 
+        // 战斗状态特效
+        if (entity.isInCombat) {
+            ctx.fillStyle = 'rgba(255, 100, 0, 0.15)';
+            ctx.beginPath();
+            ctx.arc(x, y, r + 6, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
         // 主体圆形
         ctx.fillStyle = innerColor;
         ctx.beginPath();
@@ -152,6 +287,14 @@ class RenderSystem {
         const teamColor = entity.team === 0 ? '#58a6ff' : '#f85149';
         const innerColor = entity.team === 0 ? '#1f6feb' : '#da3633';
 
+        // 战斗状态特效
+        if (entity.isInCombat) {
+            ctx.fillStyle = 'rgba(255, 100, 0, 0.15)';
+            ctx.beginPath();
+            ctx.arc(x, y, r + 6, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
         // 主体三角形
         ctx.fillStyle = innerColor;
         ctx.beginPath();
@@ -187,6 +330,14 @@ class RenderSystem {
     drawTank(ctx, x, y, r, entity) {
         const teamColor = entity.team === 0 ? '#d29922' : '#f85149';
         const innerColor = entity.team === 0 ? '#b8860b' : '#da3633';
+
+        // 战斗状态特效
+        if (entity.isInCombat) {
+            ctx.fillStyle = 'rgba(255, 100, 0, 0.15)';
+            ctx.beginPath();
+            ctx.arc(x, y, r + 6, 0, Math.PI * 2);
+            ctx.fill();
+        }
 
         // 主体方形（圆角）
         ctx.fillStyle = innerColor;

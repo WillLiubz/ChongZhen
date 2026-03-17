@@ -212,12 +212,11 @@ class Game {
             }
         }
 
-        // 更新技能CD
-        for (let i = 0; i < this.laneCount; i++) {
-            if (this.heroes[i] && this.heroes[i].skillCD > 0) {
-                this.heroes[i].skillCD -= this.deltaTime;
-            }
-        }
+        // 更新技能CD和自动释放
+        this.updateHeroSkills();
+
+        // 更新技能特效
+        this.updateSkillEffects();
 
         // 更新台词显示
         this.updateQuotes();
@@ -240,6 +239,324 @@ class Game {
                 this.activeQuotes.splice(i, 1);
             }
         }
+    }
+
+    // 英雄技能配置
+    heroSkills = {
+        0: { // 左路英雄 - 雷霆一击
+            name: '雷霆一击',
+            damage: 100,
+            cooldown: 8,
+            range: 120,
+            effect: 'thunder',
+            color: '#58a6ff'
+        },
+        1: { // 中路英雄 - 烈焰风暴
+            name: '烈焰风暴',
+            damage: 150,
+            cooldown: 10,
+            range: 100,
+            effect: 'fire',
+            color: '#ff6b35'
+        },
+        2: { // 右路英雄 - 圣光审判
+            name: '圣光审判',
+            damage: 120,
+            cooldown: 9,
+            range: 110,
+            effect: 'holy',
+            color: '#ffd700'
+        }
+    };
+
+    // 技能特效
+    skillEffects = [];
+
+    // 更新英雄技能
+    updateHeroSkills() {
+        const now = performance.now();
+
+        for (let i = 0; i < this.laneCount; i++) {
+            const hero = this.heroes[i];
+            if (!hero) continue;
+
+            // 更新CD
+            if (hero.skillCD > 0) {
+                hero.skillCD -= this.deltaTime;
+                continue;
+            }
+
+            // 寻找技能目标
+            const skill = this.heroSkills[i];
+            const target = this.findSkillTarget(i, skill.range);
+
+            if (target) {
+                this.castHeroSkill(i, target, skill, now);
+                hero.skillCD = skill.cooldown;
+            }
+        }
+    }
+
+    // 寻找技能目标
+    findSkillTarget(laneIndex, range) {
+        const heroX = this.lanes[laneIndex].playerX;
+        const heroY = this.layout.heroZone.y;
+
+        let bestTarget = null;
+        let maxEnemyCount = 0;
+
+        for (const entity of this.entities) {
+            if (!entity.active || entity.team === 0) continue;
+            if (entity.lane !== laneIndex) continue;
+
+            const dist = Math.sqrt(
+                Math.pow(entity.position.x - heroX, 2) +
+                Math.pow(entity.position.y - heroY, 2)
+            );
+
+            if (dist <= range) {
+                // 计算该位置周围的敌人数量
+                let enemyCount = 0;
+                for (const other of this.entities) {
+                    if (!other.active || other.team === 0) continue;
+                    const otherDist = entity.position.distanceTo(other.position);
+                    if (otherDist < 60) enemyCount++;
+                }
+
+                if (enemyCount > maxEnemyCount) {
+                    maxEnemyCount = enemyCount;
+                    bestTarget = entity;
+                }
+            }
+        }
+
+        return bestTarget;
+    }
+
+    // 释放英雄技能
+    castHeroSkill(laneIndex, target, skill, now) {
+        const heroX = this.lanes[laneIndex].playerX;
+        const heroY = this.layout.heroZone.y;
+
+        // 对范围内所有敌人造成伤害
+        let hitCount = 0;
+        for (const entity of this.entities) {
+            if (!entity.active || entity.team === 0) continue;
+
+            const dist = entity.position.distanceTo(target.position);
+            if (dist <= 80) { // 技能范围
+                entity.takeDamage(skill.damage, true);
+                hitCount++;
+            }
+        }
+
+        // 添加技能特效
+        this.skillEffects.push({
+            type: skill.effect,
+            x: target.position.x,
+            y: target.position.y,
+            color: skill.color,
+            startTime: now,
+            duration: 1000,
+            damage: skill.damage,
+            hitCount: hitCount
+        });
+
+        // 添加技能台词
+        this.activeQuotes.push({
+            text: `${skill.name}!`,
+            x: heroX,
+            y: heroY - 50,
+            life: 1.5,
+            maxLife: 1.5,
+            entity: null
+        });
+    }
+
+    // 更新技能特效
+    updateSkillEffects() {
+        const now = performance.now();
+
+        for (let i = this.skillEffects.length - 1; i >= 0; i--) {
+            const effect = this.skillEffects[i];
+            const elapsed = now - effect.startTime;
+
+            if (elapsed >= effect.duration) {
+                this.skillEffects.splice(i, 1);
+            }
+        }
+    }
+
+    render() {
+        // 使用场景管理器绘制背景
+        this.sceneManager.drawBackground(this.ctx, this.width, this.height);
+
+        // 绘制战场背景
+        this.drawBattlefield();
+
+        // 渲染实体
+        this.renderSystem.render(this.entities);
+
+        // 绘制技能特效
+        this.drawSkillEffects();
+
+        // 绘制UI
+        this.drawUI();
+    }
+
+    // 绘制技能特效
+    drawSkillEffects() {
+        const now = performance.now();
+
+        for (const effect of this.skillEffects) {
+            const elapsed = now - effect.startTime;
+            const progress = elapsed / effect.duration;
+
+            this.drawEffectByType(effect, progress);
+        }
+    }
+
+    // 根据类型绘制特效
+    drawEffectByType(effect, progress) {
+        const ctx = this.ctx;
+        const x = effect.x;
+        const y = effect.y;
+
+        ctx.save();
+
+        switch (effect.type) {
+            case 'thunder':
+                this.drawThunderEffect(ctx, x, y, effect.color, progress);
+                break;
+            case 'fire':
+                this.drawFireEffect(ctx, x, y, effect.color, progress);
+                break;
+            case 'holy':
+                this.drawHolyEffect(ctx, x, y, effect.color, progress);
+                break;
+        }
+
+        ctx.restore();
+    }
+
+    // 雷霆特效
+    drawThunderEffect(ctx, x, y, color, progress) {
+        const alpha = 1 - progress;
+        const scale = 1 + progress * 2;
+
+        // 闪电圈
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = alpha;
+
+        for (let i = 0; i < 3; i++) {
+            const radius = 30 * scale + i * 20;
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
+        // 闪电线条
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        for (let i = 0; i < 6; i++) {
+            const angle = (i / 6) * Math.PI * 2 + progress * Math.PI;
+            const len = 60 * scale;
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(
+                x + Math.cos(angle) * len,
+                y + Math.sin(angle) * len
+            );
+            ctx.stroke();
+        }
+
+        // 伤害数字
+        ctx.fillStyle = '#FFD700';
+        ctx.font = 'bold 24px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`⚡ ${effect.damage}`, x, y - 40 - progress * 30);
+    }
+
+    // 火焰特效
+    drawFireEffect(ctx, x, y, color, progress) {
+        const alpha = 1 - progress;
+        const scale = 1 + progress;
+
+        // 火焰圈
+        const gradient = ctx.createRadialGradient(x, y, 0, x, y, 80 * scale);
+        gradient.addColorStop(0, color + Math.floor(alpha * 255).toString(16).padStart(2, '0'));
+        gradient.addColorStop(0.5, '#ff4500' + Math.floor(alpha * 128).toString(16).padStart(2, '0'));
+        gradient.addColorStop(1, 'transparent');
+
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(x, y, 80 * scale, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 火焰粒子
+        for (let i = 0; i < 8; i++) {
+            const angle = (i / 8) * Math.PI * 2 + progress * 2;
+            const dist = 30 + progress * 50;
+            const px = x + Math.cos(angle) * dist;
+            const py = y + Math.sin(angle) * dist;
+
+            ctx.fillStyle = `rgba(255, ${100 + i * 20}, 0, ${alpha})`;
+            ctx.beginPath();
+            ctx.arc(px, py, 8 * (1 - progress), 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // 伤害数字
+        ctx.fillStyle = '#FF6B35';
+        ctx.font = 'bold 24px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`🔥 ${effect.damage}`, x, y - 50 - progress * 20);
+    }
+
+    // 圣光特效
+    drawHolyEffect(ctx, x, y, color, progress) {
+        const alpha = 1 - progress;
+
+        // 光柱
+        const gradient = ctx.createLinearGradient(x, y - 100, x, y + 100);
+        gradient.addColorStop(0, 'transparent');
+        gradient.addColorStop(0.5, color + Math.floor(alpha * 200).toString(16).padStart(2, '0'));
+        gradient.addColorStop(1, 'transparent');
+
+        ctx.fillStyle = gradient;
+        ctx.fillRect(x - 40, y - 100, 80, 200);
+
+        // 圣光射线
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = alpha;
+
+        for (let i = 0; i < 12; i++) {
+            const angle = (i / 12) * Math.PI * 2;
+            const len = 60 + Math.sin(progress * Math.PI * 4) * 20;
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(
+                x + Math.cos(angle) * len,
+                y + Math.sin(angle) * len
+            );
+            ctx.stroke();
+        }
+
+        // 中心光球
+        ctx.fillStyle = '#fff';
+        ctx.globalAlpha = alpha * 0.8;
+        ctx.beginPath();
+        ctx.arc(x, y, 20 * (1 - progress * 0.5), 0, Math.PI * 2);
+        ctx.fill();
+
+        // 伤害数字
+        ctx.fillStyle = '#FFD700';
+        ctx.font = 'bold 24px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.globalAlpha = 1;
+        ctx.fillText(`✨ ${effect.damage}`, x, y - 60);
     }
 
     render() {

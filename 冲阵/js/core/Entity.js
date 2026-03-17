@@ -28,9 +28,16 @@ class Entity {
         this.color = '#4CAF50';
         this.unitType = 'melee';  // melee/ranged/tank/hero
 
-        // 战斗目标
+        // 战斗状态
         this.combatTarget = null;
         this.canMove = true;
+        this.isInCombat = false;
+        this.combatGroup = []; // 军团战斗中的友军
+        this.formationOffset = { x: 0, y: 0 }; // 阵型偏移
+
+        // 视觉效果
+        this.attackEffect = null; // 攻击特效
+        this.damageNumbers = [];  // 伤害数字
     }
 
     reset() {
@@ -41,11 +48,25 @@ class Entity {
         this.lastAttackTime = 0;
         this.combatTarget = null;
         this.canMove = true;
+        this.isInCombat = false;
+        this.combatGroup = [];
+        this.formationOffset = { x: 0, y: 0 };
+        this.attackEffect = null;
+        this.damageNumbers = [];
         this.unitType = 'melee';
     }
 
-    takeDamage(damage) {
+    takeDamage(damage, isSkill = false) {
         this.hp -= damage;
+
+        // 添加伤害数字
+        this.damageNumbers.push({
+            value: damage,
+            isSkill: isSkill,
+            life: 1.0,
+            offsetY: 0
+        });
+
         if (this.hp <= 0) {
             this.hp = 0;
             this.active = false;
@@ -58,10 +79,53 @@ class Entity {
 
     attackTarget(target, now) {
         if (this.canAttack(now)) {
+            // 创建攻击特效
+            this.attackEffect = {
+                target: target,
+                startTime: now,
+                duration: 200
+            };
+
             target.takeDamage(this.attack);
             this.lastAttackTime = now;
             return true;
         }
         return false;
+    }
+
+    // 进入战斗状态
+    enterCombat(target) {
+        this.isInCombat = true;
+        this.combatTarget = target;
+        this.canMove = false;
+        this.velocity.set(0, 0);
+    }
+
+    // 退出战斗状态
+    exitCombat() {
+        this.isInCombat = false;
+        this.combatTarget = null;
+        this.canMove = true;
+        this.combatGroup = [];
+    }
+
+    // 更新伤害数字
+    updateDamageNumbers(deltaTime) {
+        for (let i = this.damageNumbers.length - 1; i >= 0; i--) {
+            const dmg = this.damageNumbers[i];
+            dmg.life -= deltaTime;
+            dmg.offsetY -= 30 * deltaTime; // 向上飘动
+
+            if (dmg.life <= 0) {
+                this.damageNumbers.splice(i, 1);
+            }
+        }
+    }
+
+    // 更新攻击特效
+    updateAttackEffect(now) {
+        if (this.attackEffect && now - this.attackEffect.startTime > this.attackEffect.duration) {
+            this.attackEffect = null;
+        }
     }
 }
