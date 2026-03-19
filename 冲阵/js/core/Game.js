@@ -563,7 +563,7 @@ class Game {
             const dist = 40 + progress * 70 + Math.sin(progress * Math.PI * 4 + i) * 10;
             const px = x + Math.cos(angle) * dist;
             const py = y + Math.sin(angle) * dist;
-            const size = 12 * (1 - progress) + Math.random() * 5;
+            const size = Math.max(0.1, 12 * (1 - progress) + Math.random() * 5);
 
             ctx.fillStyle = `rgba(255, ${Math.floor(50 + i * 15)}, 0, ${alpha})`;
             ctx.beginPath();
@@ -646,7 +646,7 @@ class Game {
 
         // 中心圣光球（多层）
         for (let i = 0; i < 3; i++) {
-            const ballRadius = (25 - i * 5) * scale * (1 - progress * 0.3);
+            const ballRadius = Math.max(0.1, (25 - i * 5) * scale * (1 - progress * 0.3));
             const ballGradient = ctx.createRadialGradient(x, y, 0, x, y, ballRadius);
             ballGradient.addColorStop(0, i === 0 ? '#fff' : color);
             ballGradient.addColorStop(0.5, color);
@@ -668,8 +668,9 @@ class Game {
             const py = y + Math.sin(angle) * dist - progress * 30;
 
             ctx.fillStyle = i % 2 === 0 ? '#fff' : color;
+            const particleRadius = Math.max(0.1, 3 * (1 - progress));
             ctx.beginPath();
-            ctx.arc(px, py, 3 * (1 - progress), 0, Math.PI * 2);
+            ctx.arc(px, py, particleRadius, 0, Math.PI * 2);
             ctx.fill();
         }
 
