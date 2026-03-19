@@ -41,13 +41,8 @@
         #ui div {
             margin-bottom: 4px;
         }
-        #controls {
-            margin-top: 16px;
-            display: flex;
-            gap: 12px;
-        }
         #gameControls {
-            display: none; /* 初始隐藏，战斗时显示 */
+            display: none; /* 保留占位，战斗中无需显示 */
         }
         #sceneControls {
             position: absolute;
@@ -156,13 +151,7 @@
             <button class="lane-count-btn" data-lanes="2" title="2条路">2</button>
             <button class="lane-count-btn active" data-lanes="3" title="3条路">3</button>
         </div>
-        <div id="gameControls">
-            <div id="controls">
-                <button id="spawnLeft" class="lane-btn left">左路出兵 (Q)</button>
-                <button id="spawnMid" class="lane-btn">中路出兵 (W)</button>
-                <button id="spawnRight" class="lane-btn right">右路出兵 (E)</button>
-            </div>
-        </div>
+        <div id="gameControls"></div>
     </div>
 
     <script src="js/utils/Vector2.js"></script>

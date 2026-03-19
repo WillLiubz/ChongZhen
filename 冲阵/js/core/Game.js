@@ -172,6 +172,52 @@ class Game {
             (entity) => entity.reset(),
             50
         );
+
+        // 悬停的屯兵格子
+        this.hoveredTroopLane = -1;
+
+        // 绑定 canvas 鼠标事件
+        this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
+        this.canvas.addEventListener('click', (e) => this.handleCanvasClick(e));
+    }
+
+    // 获取鼠标在 canvas 上的坐标
+    getCanvasPos(e) {
+        const rect = this.canvas.getBoundingClientRect();
+        return {
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top
+        };
+    }
+
+    // 获取鼠标所在的屯兵格子 lane index（-1 表示不在任何格子上）
+    getTroopLaneAt(x, y) {
+        const troopY = this.layout.troopZone.y;
+        if (y < troopY - 25 || y > troopY + 25) return -1;
+        for (let i = 0; i < this.laneCount; i++) {
+            const laneX = this.lanes[i].playerX;
+            if (x >= laneX - 45 && x <= laneX + 45) return i;
+        }
+        return -1;
+    }
+
+    // 处理鼠标移动（悬停高亮屯兵槽）
+    handleMouseMove(e) {
+        if (!this.running || this.gameOver) return;
+        const { x, y } = this.getCanvasPos(e);
+        const lane = this.getTroopLaneAt(x, y);
+        this.hoveredTroopLane = lane;
+        this.canvas.style.cursor = (lane >= 0 && this.troops[lane]?.count > 0) ? 'pointer' : 'default';
+    }
+
+    // 处理 canvas 点击（点击屯兵区出兵）
+    handleCanvasClick(e) {
+        if (!this.running || this.gameOver) return;
+        const { x, y } = this.getCanvasPos(e);
+        const lane = this.getTroopLaneAt(x, y);
+        if (lane >= 0 && this.troops[lane] && this.troops[lane].count > 0) {
+            this.spawnUnit(lane, 0);
+        }
     }
 
     start() {
@@ -1081,7 +1127,10 @@ class Game {
         const y = layout.troopZone.y;
         const troopStyle = scene.troop;
 
-        // 士兵屯兵区背景（适应外扩布局）
+        // 快捷键映射
+        const keyLabels = ['Q', 'W', 'E'];
+
+        // 士兵屯兵区背景
         ctx.fillStyle = troopStyle.bg;
         ctx.fillRect(20, y - 35, 460, 70);
 
@@ -1094,21 +1143,26 @@ class Game {
         this.lanes.forEach((lane, index) => {
             const x = lane.playerX;
             const troop = this.troops[index];
+            const isHovered = this.hoveredTroopLane === index;
+            const hasTroops = troop.count > 0;
 
-            // 屯兵槽背景
-            ctx.fillStyle = '#21262d';
+            // 屯兵槽背景（悬停高亮）
+            ctx.fillStyle = isHovered && hasTroops ? lane.color + '30' : '#21262d';
             ctx.fillRect(x - 45, y - 25, 90, 50);
 
-            // 屯兵槽边框
-            ctx.strokeStyle = lane.color;
-            ctx.lineWidth = 2;
+            // 屯兵槽边框（悬停时加粗变亮）
+            ctx.strokeStyle = isHovered && hasTroops ? lane.color : lane.color + '80';
+            ctx.lineWidth = isHovered && hasTroops ? 3 : 2;
             ctx.strokeRect(x - 45, y - 25, 90, 50);
 
-            // 兵种图标（简化为圆形）
+            // 没兵时灰显
+            ctx.globalAlpha = hasTroops ? 1 : 0.4;
+
+            // 兵种图标
             const iconColor = troop.type === 'sword' ? '#58a6ff' :
                              troop.type === 'spear' ? '#d29922' : '#a371f7';
 
-            // 显示多个士兵缩略图表示数量
+            // 士兵小圆圈
             const count = Math.min(troop.count, 5);
             for (let i = 0; i < count; i++) {
                 const offsetX = (i - 2) * 14;
@@ -1117,8 +1171,6 @@ class Game {
                 ctx.arc(x + offsetX, y, 5, 0, Math.PI * 2);
                 ctx.fill();
             }
-
-            // 如果数量超过5，显示+号
             if (troop.count > 5) {
                 ctx.fillStyle = '#fff';
                 ctx.font = 'bold 10px sans-serif';
@@ -1126,24 +1178,39 @@ class Game {
                 ctx.fillText(`+${troop.count - 5}`, x + 35, y + 3);
             }
 
-            // 数量显示
+            // 数量
             ctx.fillStyle = '#c9d1d9';
             ctx.font = 'bold 14px sans-serif';
             ctx.textAlign = 'center';
             ctx.fillText(`${troop.count}`, x, y + 18);
 
-            // 等级标识
-            ctx.fillStyle = '#8b949e';
-            ctx.font = '9px sans-serif';
-            ctx.fillText(`Lv${troop.level}`, x, y - 12);
+            ctx.globalAlpha = 1;
+
+            // 快捷键标签（左上角）
+            const keyLabel = this.laneCount === 1 ? 'W' :
+                             this.laneCount === 2 ? (index === 0 ? 'Q' : 'E') :
+                             keyLabels[index];
+            ctx.fillStyle = isHovered && hasTroops ? '#fff' : lane.color;
+            ctx.font = `bold ${isHovered && hasTroops ? 13 : 11}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.fillText(`[${keyLabel}]`, x, y - 12);
+
+            // 出兵提示（悬停时显示）
+            if (isHovered && hasTroops) {
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 10px sans-serif';
+                ctx.globalAlpha = 0.9;
+                ctx.fillText('点击出兵', x, y - 28);
+                ctx.globalAlpha = 1;
+            }
         });
 
         // 区域标签
         ctx.fillStyle = troopStyle.border;
         ctx.globalAlpha = 0.8;
-        ctx.font = '10px sans-serif';
+        ctx.font = 'bold 10px sans-serif';
         ctx.textAlign = 'left';
-        ctx.fillText('屯兵', 25, y - 22);
+        ctx.fillText('屯 兵', 25, y - 22);
         ctx.globalAlpha = 1;
     }
 
