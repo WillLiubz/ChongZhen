@@ -77,7 +77,7 @@ class Entity {
         return now - this.lastAttackTime >= 1000 / this.attackSpeed;
     }
 
-    attackTarget(target, now) {
+    attackTarget(target, now, game) {
         if (this.canAttack(now)) {
             // 创建攻击特效
             this.attackEffect = {
@@ -86,7 +86,14 @@ class Entity {
                 duration: 200
             };
 
-            target.takeDamage(this.attack);
+            // 计算伤害（应用士气加成）
+            let damage = this.attack;
+            if (game) {
+                const moraleBonus = game.getMoraleDamageBonus(this.team);
+                damage = Math.round(damage * moraleBonus);
+            }
+
+            target.takeDamage(damage);
             this.lastAttackTime = now;
             return true;
         }

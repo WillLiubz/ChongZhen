@@ -108,11 +108,21 @@ class Game {
         // 当前使用的路配置
         this.lanes = this.laneConfigs[3];
 
-        // 基地血量
-        this.playerBaseHP = 1000;
-        this.playerBaseMaxHP = 1000;
-        this.enemyBaseHP = 1000;
-        this.enemyBaseMaxHP = 1000;
+        // 基地血量 - 降低为300，加快游戏节奏
+        this.playerBaseHP = 300;
+        this.playerBaseMaxHP = 300;
+        this.enemyBaseHP = 300;
+        this.enemyBaseMaxHP = 300;
+
+        // 士气系统
+        this.morale = {
+            player: 100,  // 玩家士气 (0-200)
+            enemy: 100    // 敌方士气 (0-200)
+        };
+        this.casualties = {
+            player: 0,    // 玩家战损统计
+            enemy: 0      // 敌方战损统计
+        };
 
         // 屯兵数量
         this.troops = {
@@ -203,10 +213,18 @@ class Game {
         // 碰撞检测
         this.collisionSystem.update(this.entities);
 
-        // 清理死亡实体
+        // 清理死亡实体并统计战损
         for (let i = this.entities.length - 1; i >= 0; i--) {
             const entity = this.entities[i];
             if (!entity.active) {
+                // 统计战损
+                if (entity.team === 0) {
+                    this.casualties.player++;
+                } else {
+                    this.casualties.enemy++;
+                }
+                this.updateMorale();
+
                 this.entityPool.release(entity);
                 this.entities.splice(i, 1);
             }
@@ -426,151 +444,249 @@ class Game {
 
         switch (effect.type) {
             case 'thunder':
-                this.drawThunderEffect(ctx, x, y, effect.color, progress);
+                this.drawThunderEffect(ctx, x, y, effect.color, progress, effect);
                 break;
             case 'fire':
-                this.drawFireEffect(ctx, x, y, effect.color, progress);
+                this.drawFireEffect(ctx, x, y, effect.color, progress, effect);
                 break;
             case 'holy':
-                this.drawHolyEffect(ctx, x, y, effect.color, progress);
+                this.drawHolyEffect(ctx, x, y, effect.color, progress, effect);
                 break;
         }
 
         ctx.restore();
     }
 
-    // 雷霆特效
-    drawThunderEffect(ctx, x, y, color, progress) {
+    // 雷霆特效 - 增强版
+    drawThunderEffect(ctx, x, y, color, progress, effect) {
         const alpha = 1 - progress;
-        const scale = 1 + progress * 2;
+        const scale = 1 + progress * 3;
 
-        // 闪电圈
+        // 屏幕闪光效果
+        if (progress < 0.1) {
+            ctx.fillStyle = `rgba(88, 166, 255, ${0.3 * (1 - progress * 10)})`;
+            ctx.fillRect(0, 0, this.width, this.height);
+        }
+
+        // 外圈冲击波
         ctx.strokeStyle = color;
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 4;
         ctx.globalAlpha = alpha;
-
-        for (let i = 0; i < 3; i++) {
-            const radius = 30 * scale + i * 20;
+        for (let i = 0; i < 4; i++) {
+            const radius = 40 * scale + i * 25;
             ctx.beginPath();
             ctx.arc(x, y, radius, 0, Math.PI * 2);
             ctx.stroke();
         }
 
-        // 闪电线条
+        // 主闪电（更粗更亮）
         ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 2;
-        for (let i = 0; i < 6; i++) {
-            const angle = (i / 6) * Math.PI * 2 + progress * Math.PI;
-            const len = 60 * scale;
+        ctx.lineWidth = 4;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 20;
+        for (let i = 0; i < 8; i++) {
+            const angle = (i / 8) * Math.PI * 2 + progress * Math.PI * 2;
+            const len = 80 * scale;
             ctx.beginPath();
             ctx.moveTo(x, y);
+            // 锯齿状闪电
+            const midX = x + Math.cos(angle) * len * 0.5 + (Math.random() - 0.5) * 20;
+            const midY = y + Math.sin(angle) * len * 0.5 + (Math.random() - 0.5) * 20;
+            ctx.lineTo(midX, midY);
             ctx.lineTo(
                 x + Math.cos(angle) * len,
                 y + Math.sin(angle) * len
             );
             ctx.stroke();
         }
+        ctx.shadowBlur = 0;
 
-        // 伤害数字
-        ctx.fillStyle = '#FFD700';
-        ctx.font = 'bold 24px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(`⚡ ${effect.damage}`, x, y - 40 - progress * 30);
-    }
-
-    // 火焰特效
-    drawFireEffect(ctx, x, y, color, progress) {
-        const alpha = 1 - progress;
-        const scale = 1 + progress;
-
-        // 火焰圈
-        const gradient = ctx.createRadialGradient(x, y, 0, x, y, 80 * scale);
-        gradient.addColorStop(0, color + Math.floor(alpha * 255).toString(16).padStart(2, '0'));
-        gradient.addColorStop(0.5, '#ff4500' + Math.floor(alpha * 128).toString(16).padStart(2, '0'));
-        gradient.addColorStop(1, 'transparent');
-
-        ctx.fillStyle = gradient;
+        // 中心能量球
+        const ballGradient = ctx.createRadialGradient(x, y, 0, x, y, 30 * scale);
+        ballGradient.addColorStop(0, '#fff');
+        ballGradient.addColorStop(0.5, color);
+        ballGradient.addColorStop(1, 'transparent');
+        ctx.fillStyle = ballGradient;
+        ctx.globalAlpha = alpha * 0.8;
         ctx.beginPath();
-        ctx.arc(x, y, 80 * scale, 0, Math.PI * 2);
+        ctx.arc(x, y, 30 * scale, 0, Math.PI * 2);
         ctx.fill();
 
-        // 火焰粒子
-        for (let i = 0; i < 8; i++) {
-            const angle = (i / 8) * Math.PI * 2 + progress * 2;
-            const dist = 30 + progress * 50;
-            const px = x + Math.cos(angle) * dist;
-            const py = y + Math.sin(angle) * dist;
+        // 伤害数字（更大更醒目）
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = '#FFD700';
+        ctx.font = 'bold 32px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#000';
+        ctx.shadowBlur = 4;
+        ctx.fillText(`⚡ ${effect.damage}`, x, y - 50 - progress * 40);
+        ctx.shadowBlur = 0;
 
-            ctx.fillStyle = `rgba(255, ${100 + i * 20}, 0, ${alpha})`;
+        // 命中数量
+        ctx.fillStyle = '#58a6ff';
+        ctx.font = 'bold 14px sans-serif';
+        ctx.fillText(`命中 ${effect.hitCount} 目标`, x, y - 25 - progress * 40);
+    }
+
+    // 火焰特效 - 增强版
+    drawFireEffect(ctx, x, y, color, progress, effect) {
+        const alpha = 1 - progress;
+        const scale = 1 + progress * 2;
+
+        // 屏幕红闪效果
+        if (progress < 0.15) {
+            ctx.fillStyle = `rgba(255, 107, 53, ${0.2 * (1 - progress * 6.67)})`;
+            ctx.fillRect(0, 0, this.width, this.height);
+        }
+
+        // 多层火焰圈
+        for (let ring = 0; ring < 3; ring++) {
+            const ringScale = scale + ring * 0.3;
+            const ringAlpha = alpha * (1 - ring * 0.3);
+            const gradient = ctx.createRadialGradient(x, y, 0, x, y, 100 * ringScale);
+            gradient.addColorStop(0, `rgba(255, 107, 53, ${ringAlpha})`);
+            gradient.addColorStop(0.3, `rgba(255, 69, 0, ${ringAlpha * 0.8})`);
+            gradient.addColorStop(0.7, `rgba(139, 0, 0, ${ringAlpha * 0.4})`);
+            gradient.addColorStop(1, 'transparent');
+
+            ctx.fillStyle = gradient;
             ctx.beginPath();
-            ctx.arc(px, py, 8 * (1 - progress), 0, Math.PI * 2);
+            ctx.arc(x, y, 100 * ringScale, 0, Math.PI * 2);
             ctx.fill();
         }
 
-        // 伤害数字
-        ctx.fillStyle = '#FF6B35';
-        ctx.font = 'bold 24px sans-serif';
+        // 火焰粒子（更多更动态）
+        ctx.shadowColor = '#ff4500';
+        ctx.shadowBlur = 15;
+        for (let i = 0; i < 12; i++) {
+            const angle = (i / 12) * Math.PI * 2 + progress * 3;
+            const dist = 40 + progress * 70 + Math.sin(progress * Math.PI * 4 + i) * 10;
+            const px = x + Math.cos(angle) * dist;
+            const py = y + Math.sin(angle) * dist;
+            const size = 12 * (1 - progress) + Math.random() * 5;
+
+            ctx.fillStyle = `rgba(255, ${Math.floor(50 + i * 15)}, 0, ${alpha})`;
+            ctx.beginPath();
+            ctx.arc(px, py, size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.shadowBlur = 0;
+
+        // 中心火柱
+        const pillarGradient = ctx.createLinearGradient(x, y - 60 * scale, x, y + 60 * scale);
+        pillarGradient.addColorStop(0, 'transparent');
+        pillarGradient.addColorStop(0.3, `rgba(255, 200, 0, ${alpha})`);
+        pillarGradient.addColorStop(0.5, `rgba(255, 107, 53, ${alpha})`);
+        pillarGradient.addColorStop(1, 'transparent');
+        ctx.fillStyle = pillarGradient;
+        ctx.fillRect(x - 30 * scale, y - 60 * scale, 60 * scale, 120 * scale);
+
+        // 伤害数字（更大更醒目）
+        ctx.fillStyle = '#FF4500';
+        ctx.font = 'bold 36px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(`🔥 ${effect.damage}`, x, y - 50 - progress * 20);
+        ctx.shadowColor = '#FFD700';
+        ctx.shadowBlur = 10;
+        ctx.fillText(`🔥 ${effect.damage}`, x, y - 60 - progress * 30);
+        ctx.shadowBlur = 0;
+
+        // 命中数量
+        ctx.fillStyle = '#ff6b35';
+        ctx.font = 'bold 14px sans-serif';
+        ctx.fillText(`灼烧 ${effect.hitCount} 目标`, x, y - 30 - progress * 30);
     }
 
-    // 圣光特效
-    drawHolyEffect(ctx, x, y, color, progress) {
+    // 圣光特效 - 增强版
+    drawHolyEffect(ctx, x, y, color, progress, effect) {
         const alpha = 1 - progress;
+        const scale = 1 + progress;
 
-        // 光柱
-        const gradient = ctx.createLinearGradient(x, y - 100, x, y + 100);
-        gradient.addColorStop(0, 'transparent');
-        gradient.addColorStop(0.5, color + Math.floor(alpha * 200).toString(16).padStart(2, '0'));
-        gradient.addColorStop(1, 'transparent');
-
-        ctx.fillStyle = gradient;
-        ctx.fillRect(x - 40, y - 100, 80, 200);
-
-        // 圣光射线
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 2;
-        ctx.globalAlpha = alpha;
-
-        for (let i = 0; i < 12; i++) {
-            const angle = (i / 12) * Math.PI * 2;
-            const len = 60 + Math.sin(progress * Math.PI * 4) * 20;
-            ctx.beginPath();
-            ctx.moveTo(x, y);
-            ctx.lineTo(
-                x + Math.cos(angle) * len,
-                y + Math.sin(angle) * len
-            );
-            ctx.stroke();
+        // 屏幕圣光效果
+        if (progress < 0.2) {
+            const holyFlash = ctx.createRadialGradient(x, y, 0, x, y, 300);
+            holyFlash.addColorStop(0, `rgba(255, 215, 0, ${0.3 * (1 - progress * 5)})`);
+            holyFlash.addColorStop(1, 'transparent');
+            ctx.fillStyle = holyFlash;
+            ctx.fillRect(0, 0, this.width, this.height);
         }
 
-        // 中心光球
-        ctx.fillStyle = '#fff';
-        ctx.globalAlpha = alpha * 0.8;
-        ctx.beginPath();
-        ctx.arc(x, y, 20 * (1 - progress * 0.5), 0, Math.PI * 2);
-        ctx.fill();
+        // 主光柱（更宽更亮）
+        const pillarGradient = ctx.createLinearGradient(x - 50 * scale, y, x + 50 * scale, y);
+        pillarGradient.addColorStop(0, 'transparent');
+        pillarGradient.addColorStop(0.2, `rgba(255, 215, 0, ${alpha * 0.5})`);
+        pillarGradient.addColorStop(0.5, `rgba(255, 255, 255, ${alpha})`);
+        pillarGradient.addColorStop(0.8, `rgba(255, 215, 0, ${alpha * 0.5})`);
+        pillarGradient.addColorStop(1, 'transparent');
 
-        // 伤害数字
-        ctx.fillStyle = '#FFD700';
-        ctx.font = 'bold 24px sans-serif';
-        ctx.textAlign = 'center';
+        ctx.fillStyle = pillarGradient;
+        ctx.fillRect(x - 50 * scale, y - 150, 100 * scale, 300);
+
+        // 多层圣光射线
+        for (let ring = 0; ring < 3; ring++) {
+            const ringScale = 1 + ring * 0.5;
+            ctx.strokeStyle = ring === 0 ? '#fff' : color;
+            ctx.lineWidth = 3 - ring;
+            ctx.globalAlpha = alpha * (1 - ring * 0.3);
+            ctx.shadowColor = color;
+            ctx.shadowBlur = 20 - ring * 5;
+
+            for (let i = 0; i < 16; i++) {
+                const angle = (i / 16) * Math.PI * 2 + progress * Math.PI * (ring + 1);
+                const len = (50 + ring * 30) * ringScale + Math.sin(progress * Math.PI * 6) * 15;
+                ctx.beginPath();
+                ctx.moveTo(x, y);
+                ctx.lineTo(
+                    x + Math.cos(angle) * len,
+                    y + Math.sin(angle) * len
+                );
+                ctx.stroke();
+            }
+        }
+        ctx.shadowBlur = 0;
+
+        // 中心圣光球（多层）
+        for (let i = 0; i < 3; i++) {
+            const ballRadius = (25 - i * 5) * scale * (1 - progress * 0.3);
+            const ballGradient = ctx.createRadialGradient(x, y, 0, x, y, ballRadius);
+            ballGradient.addColorStop(0, i === 0 ? '#fff' : color);
+            ballGradient.addColorStop(0.5, color);
+            ballGradient.addColorStop(1, 'transparent');
+
+            ctx.fillStyle = ballGradient;
+            ctx.globalAlpha = alpha * (0.8 - i * 0.2);
+            ctx.beginPath();
+            ctx.arc(x, y, ballRadius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // 圣光粒子
+        ctx.globalAlpha = alpha;
+        for (let i = 0; i < 20; i++) {
+            const angle = (i / 20) * Math.PI * 2 + progress * 2;
+            const dist = 60 + progress * 40;
+            const px = x + Math.cos(angle) * dist;
+            const py = y + Math.sin(angle) * dist - progress * 30;
+
+            ctx.fillStyle = i % 2 === 0 ? '#fff' : color;
+            ctx.beginPath();
+            ctx.arc(px, py, 3 * (1 - progress), 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // 伤害数字（更大更醒目）
         ctx.globalAlpha = 1;
-        ctx.fillText(`✨ ${effect.damage}`, x, y - 60);
-    }
+        ctx.fillStyle = '#FFD700';
+        ctx.font = 'bold 36px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#FF8C00';
+        ctx.shadowBlur = 15;
+        ctx.fillText(`✨ ${effect.damage}`, x, y - 70 - progress * 20);
+        ctx.shadowBlur = 0;
 
-    render() {
-        // 使用场景管理器绘制背景
-        this.sceneManager.drawBackground(this.ctx, this.width, this.height);
-
-        // 绘制战场背景
-        this.drawBattlefield();
-
-        // 渲染实体
-        this.renderSystem.render(this.entities);
-
-        // 绘制UI
-        this.drawUI();
+        // 命中数量
+        ctx.fillStyle = '#e3b341';
+        ctx.font = 'bold 14px sans-serif';
+        ctx.fillText(`审判 ${effect.hitCount} 目标`, x, y - 40 - progress * 20);
     }
 
     drawBattlefield() {
@@ -739,66 +855,131 @@ class Game {
         // 绘制三个英雄
         this.lanes.forEach((lane, index) => {
             const x = lane.playerX;
+            const hero = this.heroes[index];
+            const skill = this.heroSkills[index];
 
-            // 英雄底座
-            ctx.fillStyle = heroStyle.border;
-            ctx.globalAlpha = 0.3;
+            // 技能就绪时的光环效果
+            if (hero.skillCD <= 0) {
+                const pulse = Math.sin(performance.now() / 200) * 0.3 + 0.7;
+                ctx.shadowColor = skill.color;
+                ctx.shadowBlur = 20 * pulse;
+                ctx.strokeStyle = skill.color;
+                ctx.lineWidth = 2;
+                ctx.globalAlpha = 0.6 * pulse;
+                ctx.beginPath();
+                ctx.arc(x, y, 30, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+                ctx.globalAlpha = 1;
+            }
+
+            // 英雄底座（发光）
+            const baseGradient = ctx.createRadialGradient(x, y, 0, x, y, 28);
+            // 解析 rgba 并调整透明度
+            const borderColor = heroStyle.border;
+            const baseColor0 = borderColor.replace(/[\d.]+%?\)$/, '0.25)');
+            const baseColor1 = borderColor.replace(/[\d.]+%?\)$/, '0.06)');
+            baseGradient.addColorStop(0, baseColor0);
+            baseGradient.addColorStop(1, baseColor1);
+            ctx.fillStyle = baseGradient;
             ctx.beginPath();
-            ctx.arc(x, y, 25, 0, Math.PI * 2);
+            ctx.arc(x, y, 28, 0, Math.PI * 2);
             ctx.fill();
-            ctx.globalAlpha = 1;
 
             // 英雄主体（比士兵大）
-            ctx.fillStyle = heroStyle.color;
+            const heroGradient = ctx.createRadialGradient(x - 6, y - 6, 0, x, y, 20);
+            heroGradient.addColorStop(0, '#fff');
+            heroGradient.addColorStop(0.3, skill.color);
+            heroGradient.addColorStop(1, heroStyle.color);
+            ctx.fillStyle = heroGradient;
             ctx.beginPath();
-            ctx.arc(x, y, 18, 0, Math.PI * 2);
+            ctx.arc(x, y, 20, 0, Math.PI * 2);
             ctx.fill();
 
-            // 英雄边框
-            ctx.strokeStyle = heroStyle.border;
-            ctx.lineWidth = 3;
+            // 英雄边框（根据技能状态变色）
+            ctx.strokeStyle = hero.skillCD <= 0 ? skill.color : heroStyle.border;
+            ctx.lineWidth = hero.skillCD <= 0 ? 4 : 3;
+            ctx.shadowColor = skill.color;
+            ctx.shadowBlur = hero.skillCD <= 0 ? 10 : 0;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+
+            // 技能图标（小圆圈内）
+            ctx.fillStyle = hero.skillCD <= 0 ? skill.color : '#666';
+            ctx.beginPath();
+            ctx.arc(x + 14, y - 14, 8, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 1;
             ctx.stroke();
 
-            // 英雄血条背景
-            ctx.fillStyle = '#30363d';
-            ctx.fillRect(x - 25, y - 32, 50, 6);
-
-            // 英雄血条
-            const hero = this.heroes[index];
-            const hpPercent = hero.hp / hero.maxHp;
-            ctx.fillStyle = hpPercent > 0.5 ? '#238636' : hpPercent > 0.25 ? '#d29922' : '#da3633';
-            ctx.fillRect(x - 25, y - 32, 50 * hpPercent, 6);
-
-            // 英雄等级
+            // 技能首字
             ctx.fillStyle = '#fff';
             ctx.font = 'bold 10px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText(`Lv${hero.level}`, x, y + 4);
+            ctx.fillText(skill.name.charAt(0), x + 14, y - 11);
 
-            // 技能CD指示
+            // 英雄血条背景
+            ctx.fillStyle = '#30363d';
+            ctx.fillRect(x - 28, y - 36, 56, 8);
+
+            // 英雄血条
+            const hpPercent = hero.hp / hero.maxHp;
+            const hpGradient = ctx.createLinearGradient(x - 28, y - 36, x + 28, y - 36);
+            if (hpPercent > 0.5) {
+                hpGradient.addColorStop(0, '#1a7f37');
+                hpGradient.addColorStop(1, '#3fb950');
+            } else if (hpPercent > 0.25) {
+                hpGradient.addColorStop(0, '#9e6a03');
+                hpGradient.addColorStop(1, '#d29922');
+            } else {
+                hpGradient.addColorStop(0, '#8b1519');
+                hpGradient.addColorStop(1, '#da3633');
+            }
+            ctx.fillStyle = hpGradient;
+            ctx.fillRect(x - 28, y - 36, 56 * hpPercent, 8);
+
+            // 英雄等级（带背景）
+            ctx.fillStyle = 'rgba(0,0,0,0.6)';
+            ctx.beginPath();
+            ctx.arc(x, y + 18, 10, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 9px sans-serif';
+            ctx.fillText(`Lv${hero.level}`, x, y + 21);
+
+            // 技能CD指示（更明显的环形）
             if (hero.skillCD > 0) {
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
                 ctx.beginPath();
-                ctx.arc(x, y, 18, 0, Math.PI * 2);
+                ctx.arc(x, y, 20, 0, Math.PI * 2);
                 ctx.fill();
 
+                // CD环形进度
+                const cdPercent = hero.skillCD / skill.cooldown;
+                ctx.strokeStyle = skill.color;
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(x, y, 16, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * cdPercent);
+                ctx.stroke();
+
                 ctx.fillStyle = '#fff';
-                ctx.font = '10px sans-serif';
+                ctx.font = 'bold 12px sans-serif';
                 ctx.fillText(Math.ceil(hero.skillCD) + 's', x, y + 4);
             }
 
             // 路名标签
             ctx.fillStyle = lane.color;
-            ctx.font = '11px sans-serif';
-            ctx.fillText(lane.name, x, y + 32);
+            ctx.font = 'bold 11px sans-serif';
+            ctx.fillText(lane.name, x, y + 34);
         });
 
         // 区域标签
         ctx.fillStyle = heroStyle.border;
         ctx.globalAlpha = 0.8;
-        ctx.font = '10px sans-serif';
+        ctx.font = 'bold 10px sans-serif';
         ctx.textAlign = 'left';
-        ctx.fillText('英雄', 25, y - 22);
+        ctx.fillText('★ 英雄', 25, y - 22);
         ctx.globalAlpha = 1;
     }
 
@@ -906,6 +1087,131 @@ class Game {
         // FPS和单位数由HTML UI显示
         document.getElementById('fps').textContent = this.fps;
         document.getElementById('unitCount').textContent = this.entities.length;
+
+        // 绘制士气条
+        this.drawMoraleBar();
+    }
+
+    // 绘制士气条
+    drawMoraleBar() {
+        const ctx = this.ctx;
+        const barWidth = 240;
+        const barHeight = 16;
+        const x = (this.width - barWidth) / 2;
+        const y = 8;
+
+        // 外框发光效果（根据士气差异）
+        const moraleDiff = this.morale.player - this.morale.enemy;
+        if (Math.abs(moraleDiff) > 20) {
+            const glowColor = moraleDiff > 0 ? 'rgba(35, 134, 54, 0.5)' : 'rgba(218, 54, 51, 0.5)';
+            ctx.shadowColor = glowColor;
+            ctx.shadowBlur = 15;
+        }
+
+        // 背景
+        ctx.fillStyle = '#21262d';
+        ctx.fillRect(x, y, barWidth, barHeight);
+        ctx.shadowBlur = 0;
+
+        // 边框
+        ctx.strokeStyle = '#30363d';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, barWidth, barHeight);
+
+        // 计算士气比例 (50-200范围映射到0-1)
+        const playerRatio = Math.max(0, Math.min(1, (this.morale.player - 50) / 150));
+        const enemyRatio = Math.max(0, Math.min(1, (this.morale.enemy - 50) / 150));
+
+        // 玩家士气（左半边）- 渐变效果
+        const playerWidth = (barWidth / 2) * playerRatio;
+        const playerGradient = ctx.createLinearGradient(x, y, x + barWidth/2, y);
+        if (playerRatio > 0.7) {
+            playerGradient.addColorStop(0, '#1a7f37');
+            playerGradient.addColorStop(1, '#2ea043');
+        } else if (playerRatio > 0.3) {
+            playerGradient.addColorStop(0, '#9e6a03');
+            playerGradient.addColorStop(1, '#d29922');
+        } else {
+            playerGradient.addColorStop(0, '#8b1519');
+            playerGradient.addColorStop(1, '#da3633');
+        }
+        ctx.fillStyle = playerGradient;
+        ctx.fillRect(x + barWidth / 2 - playerWidth, y, playerWidth, barHeight);
+
+        // 敌方士气（右半边）- 渐变效果
+        const enemyWidth = (barWidth / 2) * enemyRatio;
+        const enemyGradient = ctx.createLinearGradient(x + barWidth/2, y, x + barWidth, y);
+        if (enemyRatio > 0.7) {
+            enemyGradient.addColorStop(0, '#da3633');
+            enemyGradient.addColorStop(1, '#ff6b6b');
+        } else if (enemyRatio > 0.3) {
+            enemyGradient.addColorStop(0, '#d29922');
+            enemyGradient.addColorStop(1, '#e3b341');
+        } else {
+            enemyGradient.addColorStop(0, '#2ea043');
+            enemyGradient.addColorStop(1, '#3fb950');
+        }
+        ctx.fillStyle = enemyGradient;
+        ctx.fillRect(x + barWidth / 2, y, enemyWidth, barHeight);
+
+        // 中心分隔线（加粗）
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(x + barWidth / 2, y - 2);
+        ctx.lineTo(x + barWidth / 2, y + barHeight + 2);
+        ctx.stroke();
+
+        // 士气数值（带背景）
+        this.drawMoraleNumber(ctx, Math.round(this.morale.player), x + barWidth / 2 - 35, y + 8, this.morale.player);
+        this.drawMoraleNumber(ctx, Math.round(this.morale.enemy), x + barWidth / 2 + 35, y + 8, this.morale.enemy);
+
+        // 标签
+        ctx.fillStyle = '#8b949e';
+        ctx.font = 'bold 10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('士 气', x + barWidth / 2, y + barHeight + 14);
+
+        // 战损统计（带图标）
+        ctx.font = 'bold 10px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#58a6ff';
+        ctx.fillText(`💀 ${this.casualties.player}`, x - 45, y + 12);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#f85149';
+        ctx.fillText(`💀 ${this.casualties.enemy}`, x + barWidth + 45, y + 12);
+
+        // 士气优势指示
+        if (Math.abs(moraleDiff) > 30) {
+            const advantageText = moraleDiff > 0 ? '▲ 优势' : '▼ 劣势';
+            ctx.fillStyle = moraleDiff > 0 ? '#2ea043' : '#da3633';
+            ctx.font = 'bold 9px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(advantageText, x + barWidth / 2, y - 6);
+        }
+    }
+
+    // 绘制士气数值（带颜色背景）
+    drawMoraleNumber(ctx, value, x, y, morale) {
+        // 背景圆
+        ctx.beginPath();
+        ctx.arc(x, y, 12, 0, Math.PI * 2);
+        if (morale > 130) {
+            ctx.fillStyle = 'rgba(35, 134, 54, 0.8)';
+        } else if (morale < 70) {
+            ctx.fillStyle = 'rgba(218, 54, 51, 0.8)';
+        } else {
+            ctx.fillStyle = 'rgba(139, 148, 158, 0.5)';
+        }
+        ctx.fill();
+
+        // 数值
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(value, x, y + 1);
+        ctx.textBaseline = 'alphabetic';
     }
 
     // 获取某条路在指定Y坐标的X位置（用于弧形移动）
@@ -1011,6 +1317,31 @@ class Game {
         }
     }
 
+    // 更新士气
+    updateMorale() {
+        const totalCasualties = this.casualties.player + this.casualties.enemy;
+        if (totalCasualties === 0) return;
+
+        // 计算战损比例
+        const playerCasualtyRate = this.casualties.player / (totalCasualties + 10); // +10 避免除零和早期波动
+        const enemyCasualtyRate = this.casualties.enemy / (totalCasualties + 10);
+
+        // 士气基于相对战损表现 (基准100，范围0-200)
+        // 战损少的一方士气高，战损多的一方士气低
+        const casualtyDiff = enemyCasualtyRate - playerCasualtyRate; // 正值表示玩家战损少，士气应高
+
+        this.morale.player = Math.max(50, Math.min(200, 100 + casualtyDiff * 200));
+        this.morale.enemy = Math.max(50, Math.min(200, 100 - casualtyDiff * 200));
+    }
+
+    // 获取士气伤害加成
+    getMoraleDamageBonus(team) {
+        const morale = team === 0 ? this.morale.player : this.morale.enemy;
+        // 士气100为基准，每点士气差异提供0.5%伤害加成/减成
+        // 士气50时伤害75%，士气200时伤害150%
+        return morale / 100;
+    }
+
     // 切换路数
     setLaneCount(count) {
         if (count < 1 || count > 3) return false;
@@ -1035,3 +1366,6 @@ class Game {
         return true;
     }
 }
+// Last modified: 2026年 3月19日 星期四 10时27分46秒 CST
+console.log('Game.js loaded - v1773887266');
+// Debug version: 1773892619

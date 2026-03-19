@@ -21,11 +21,20 @@ function initGameFlow() {
 
 // 开始战斗
 function startBattle(sceneType) {
+    console.log('main.startBattle called', sceneType);
+    console.log('gameControls element:', gameControls);
     // 隐藏流程控制，显示游戏控制
     gameControls.style.display = 'block';
+    console.log('gameControls display set to block');
+
+    // 停止 GameFlow 的动画循环
+    if (gameFlow) {
+        gameFlow.currentStage = 'battle';
+    }
 
     // 创建游戏实例
     game = new Game(canvas);
+    console.log('Game instance created:', game);
 
     // 切换到对应场景
     if (sceneType) {
@@ -263,3 +272,4 @@ initGameFlow();
 
 console.log('游戏流程已启动');
 console.log('流程：选择出身 -> 世界地图 -> 战斗');
+// Debug version: 1773892439

@@ -197,14 +197,14 @@ class CollisionSystem {
 
         // 攻击
         if (attacker.canAttack(now)) {
-            attacker.attackTarget(target, now);
+            attacker.attackTarget(target, now, this.game);
 
             // 军团协同攻击 - 友军也会攻击同一目标
             for (const ally of attacker.combatGroup) {
                 if (ally.active && ally.canAttack(now)) {
                     const allyDist = ally.position.distanceTo(target.position);
                     if (allyDist <= ally.attackRange + 20) {
-                        ally.attackTarget(target, now);
+                        ally.attackTarget(target, now, this.game);
                     }
                 }
             }
