@@ -117,6 +117,18 @@ function initControls() {
     document.addEventListener('keydown', (e) => {
         if (!game || !game.running) return;
 
+        // R 键重新开始
+        if (e.key.toLowerCase() === 'r' && game.gameOver) {
+            gameTimers.forEach(timer => clearInterval(timer));
+            gameTimers = [];
+            game.stop();
+            game = null;
+            gameFlow = null;
+            gameControls.style.display = 'none';
+            initGameFlow();
+            return;
+        }
+
         const key = e.key.toLowerCase();
         const laneCount = game.laneCount;
 

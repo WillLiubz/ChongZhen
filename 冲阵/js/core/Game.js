@@ -124,6 +124,11 @@ class Game {
             enemy: 0      // 敌方战损统计
         };
 
+        // 胜负状态
+        this.gameOver = false;
+        this.gameResult = null;  // 'victory' | 'defeat'
+        this.gameOverTime = 0;
+
         // 屯兵数量
         this.troops = {
             0: { count: 0, type: 'sword', level: 1 },  // 左路
@@ -207,6 +212,9 @@ class Game {
     }
 
     update() {
+        // 游戏已结束则不更新
+        if (this.gameOver) return;
+
         // 移动系统
         this.moveSystem.update(this.entities, this.deltaTime);
 
@@ -230,6 +238,9 @@ class Game {
             }
         }
 
+        // 检查胜负
+        this.checkGameOver();
+
         // 更新技能CD和自动释放
         this.updateHeroSkills();
 
@@ -238,6 +249,23 @@ class Game {
 
         // 更新台词显示
         this.updateQuotes();
+    }
+
+    // 检查胜负
+    checkGameOver() {
+        if (this.gameOver) return;
+
+        if (this.enemyBaseHP <= 0) {
+            this.enemyBaseHP = 0;
+            this.gameOver = true;
+            this.gameResult = 'victory';
+            this.gameOverTime = performance.now();
+        } else if (this.playerBaseHP <= 0) {
+            this.playerBaseHP = 0;
+            this.gameOver = true;
+            this.gameResult = 'defeat';
+            this.gameOverTime = performance.now();
+        }
     }
 
     // 更新台词
@@ -420,6 +448,71 @@ class Game {
 
         // 绘制UI
         this.drawUI();
+
+        // 绘制结算画面（覆盖在最上层）
+        if (this.gameOver) {
+            this.drawGameOver();
+        }
+    }
+
+    // 绘制游戏结算画面
+    drawGameOver() {
+        const ctx = this.ctx;
+        const elapsed = (performance.now() - this.gameOverTime) / 1000;
+        const fadeIn = Math.min(1, elapsed / 0.8); // 0.8秒淡入
+
+        const isVictory = this.gameResult === 'victory';
+
+        // 半透明遮罩
+        ctx.fillStyle = isVictory
+            ? `rgba(0, 20, 0, ${0.75 * fadeIn})`
+            : `rgba(20, 0, 0, ${0.75 * fadeIn})`;
+        ctx.fillRect(0, 0, this.width, this.height);
+
+        ctx.save();
+        ctx.globalAlpha = fadeIn;
+
+        // 主标题
+        const title = isVictory ? '胜 利' : '失 败';
+        const titleColor = isVictory ? '#FFD700' : '#ff4444';
+
+        ctx.shadowColor = titleColor;
+        ctx.shadowBlur = 40;
+        ctx.fillStyle = titleColor;
+        ctx.font = 'bold 72px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(title, this.width / 2, this.height / 2 - 80);
+        ctx.shadowBlur = 0;
+
+        // 副标题
+        ctx.fillStyle = '#fff';
+        ctx.font = '22px sans-serif';
+        ctx.fillText(
+            isVictory ? '敌方据点已被攻破！' : '我方城门已被摧毁...',
+            this.width / 2, this.height / 2 - 20
+        );
+
+        // 战报
+        ctx.font = 'bold 14px sans-serif';
+        ctx.fillStyle = '#ccc';
+        ctx.fillText(`击杀敌军: ${this.casualties.enemy}  我方战损: ${this.casualties.player}`, this.width / 2, this.height / 2 + 30);
+
+        // 士气
+        const moraleLabel = isVictory
+            ? `最终士气: ${Math.round(this.morale.player)}`
+            : `最终士气: ${Math.round(this.morale.player)}`;
+        ctx.fillText(moraleLabel, this.width / 2, this.height / 2 + 60);
+
+        // 重新开始提示（延迟1秒后显示）
+        if (elapsed > 1.2) {
+            const blinkAlpha = Math.sin(elapsed * 3) * 0.4 + 0.6;
+            ctx.globalAlpha = fadeIn * blinkAlpha;
+            ctx.fillStyle = '#fff';
+            ctx.font = '16px sans-serif';
+            ctx.fillText('按 R 键重新开始', this.width / 2, this.height / 2 + 110);
+        }
+
+        ctx.restore();
     }
 
     // 绘制技能特效
